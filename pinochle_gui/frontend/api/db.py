@@ -1,38 +1,54 @@
 import os
 import psycopg2
 import pickle
+import traceback
 from game_logic import Game
 
 DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
 
 def get_db_connection():
     if not DATABASE_URL:
-        # Fallback for local development if DATABASE_URL is not set
-        # Note: In production on Vercel, this MUST be set.
+        print("DATABASE_URL not found in environment.")
         return None
-    return psycopg2.connect(DATABASE_URL)
+    try:
+        # Neon often needs sslmode=require which should be in the URL,
+        # but we can also force it here if needed.
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        print(f"Error connecting to database: {e}")
+        traceback.print_exc()
+        return None
 
 def init_db():
+    print("Initializing database...")
     conn = get_db_connection()
     if not conn:
-        print("Warning: DATABASE_URL not set. State will not be persisted.")
+        print("Warning: Could not connect to DB. State will not be persisted.")
         return
     
-    with conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS game_state (
-                id INTEGER PRIMARY KEY,
-                data BYTEA
-            )
-        """)
-        # Ensure initial row exists
-        cur.execute("SELECT id FROM game_state WHERE id = 1")
-        if not cur.fetchone():
-            initial_game = Game()
-            cur.execute("INSERT INTO game_state (id, data) VALUES (%s, %s)", 
-                        (1, pickle.dumps(initial_game)))
-    conn.commit()
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS game_state (
+                    id INTEGER PRIMARY KEY,
+                    data BYTEA
+                )
+            """)
+            # Ensure initial row exists
+            cur.execute("SELECT id FROM game_state WHERE id = 1")
+            if not cur.fetchone():
+                print("Creating initial game state...")
+                initial_game = Game()
+                cur.execute("INSERT INTO game_state (id, data) VALUES (%s, %s)", 
+                            (1, pickle.dumps(initial_game)))
+        conn.commit()
+        print("Database initialized successfully.")
+    except Exception as e:
+        print(f"Error during init_db: {e}")
+        traceback.print_exc()
+    finally:
+        conn.close()
 
 def load_game() -> Game:
     conn = get_db_connection()
@@ -49,16 +65,23 @@ def load_game() -> Game:
             if row:
                 return pickle.loads(row[0])
             else:
+                print("No game state found in DB, creating new.")
                 game = Game()
-                save_game(game)
+                # We can't easily call save_game here without recursing or opening another conn, 
+                # so we just return the new game. The first save will create it.
                 return game
+    except Exception as e:
+        print(f"Error loading game: {e}")
+        traceback.print_exc()
+        if not hasattr(load_game, "_memory_game"):
+            load_game._memory_game = Game()
+        return load_game._memory_game
     finally:
         conn.close()
 
 def save_game(game: Game):
     conn = get_db_connection()
     if not conn:
-        # Fallback to in-memory if no DB
         load_game._memory_game = game
         return
     
@@ -68,5 +91,8 @@ def save_game(game: Game):
             if cur.rowcount == 0:
                 cur.execute("INSERT INTO game_state (id, data) VALUES (%s, %s)", (1, pickle.dumps(game)))
         conn.commit()
+    except Exception as e:
+        print(f"Error saving game: {e}")
+        traceback.print_exc()
     finally:
         conn.close()

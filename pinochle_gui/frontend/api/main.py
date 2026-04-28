@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import os
+import traceback
 import db
 from game_logic import Game
 
@@ -109,10 +110,19 @@ async def next_round():
     db.save_game(game)
     return game.get_state()
 
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "db_url_set": bool(os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL"))}
+
 @app.get("/api/game/state")
 def get_state():
-    game = db.load_game()
-    return game.get_state()
+    try:
+        game = db.load_game()
+        return game.get_state()
+    except Exception as e:
+        print(f"CRITICAL ERROR in get_state: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/game/bid")
 async def place_bid(req: BidRequest):
