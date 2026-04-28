@@ -16,7 +16,10 @@ app.add_middleware(
 )
 
 # Initialize DB table on load for serverless
-db.init_db()
+try:
+    db.init_db()
+except Exception as e:
+    print(f"Database initialization failed: {e}")
 
 class JoinRequest(BaseModel):
     seat_index: int
