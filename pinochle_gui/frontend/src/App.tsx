@@ -76,17 +76,9 @@ function App() {
   const [message, setMessage] = useState<string | null>(null);
   const [selectedMeldIndices, setSelectedMeldIndices] = useState<number[]>([]);
   
-  const host = window.location.host;
-  const protocol = window.location.protocol;
-  const isSecure = protocol === 'https:';
-  const wsProtocol = isSecure ? 'wss:' : 'ws:';
+  // Use relative-to-root URLs for everything in Vercel
+  const API_BASE = `/api`;
   
-  // Use relative-to-root URLs for everything
-  const API_BASE = `${protocol}//${host}`;
-  // For WebSockets on Render/behind proxies, sometimes we need the full URL without any ambiguity
-  const WS_URL = `${wsProtocol}//${host}/ws`;
-  
-  const ws = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,68 +106,26 @@ function App() {
   };
 
   useEffect(() => {
-    // 1. Initial fetch via HTTP so the UI loads immediately
+    // Initial fetch
     fetchState();
 
-    // 2. Set up WebSocket for real-time updates
-    console.log("Attempting WebSocket connection to:", WS_URL);
-    const socket = new WebSocket(WS_URL);
-    
-    socket.onopen = () => {
-      console.log("WebSocket connected successfully to:", WS_URL);
-      setMessage(null);
-      fetchState(); // Re-sync on open
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("WebSocket message received:", data.phase);
-        setGameState(data);
-      } catch (e) {
-        console.error("Failed to parse socket data:", e);
-      }
-    };
-
-    socket.onerror = (err) => {
-      console.error("WebSocket Error Event:", err);
-      // Detailed error info for the user
-      setMessage(`Connection error to ${WS_URL}. Check console for details.`);
-    };
-
-    socket.onclose = (event) => {
-      console.warn("WebSocket closed. Code:", event.code, "Reason:", event.reason);
-      if (!event.wasClean) {
-        setMessage("Real-time connection lost. Using background polling...");
-        // Do NOT reload the page, as it wipes out local state (seat, username)
-      }
-    };
-
-    ws.current = socket;
-
-    // Safety fallback: Poll every 1 second in case WebSocket drops
+    // Set up polling for real-time updates (replaces WebSockets for Vercel)
     const pollInterval = setInterval(() => {
-      if (socket.readyState !== WebSocket.OPEN) {
-        fetchState();
-      }
+      fetchState();
     }, 1000);
 
     return () => {
-      socket.close();
       clearInterval(pollInterval);
     };
   }, []);
 
-  // AI play loop trigger (only if I'm the leader or it's AI turn)
-  // Actually, in multiplayer, we want one person to be responsible for AI moves or the server does it.
-  // Let's have the server handle it via a timer or just keep the frontend trigger for now.
+  // AI play loop trigger
   useEffect(() => {
     if (gameState?.phase === 'trick_taking') {
       const activePlayers = gameState.active_players || [0, 1, 2, 3];
       const currentIndex = (activePlayers.indexOf(gameState.trick_leader) + gameState.current_trick.length) % activePlayers.length;
       const curr_p = activePlayers[currentIndex];
       
-      // Trigger AI move if it's an AI's turn
       if (gameState.player_names[curr_p]?.startsWith("AI") && gameState.current_trick.length < activePlayers.length) {
         const firstHuman = gameState.seat_assignments.findIndex(s => s !== null && s !== "AI");
         if (mySeat === firstHuman) {
