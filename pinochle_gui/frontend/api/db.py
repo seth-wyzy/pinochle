@@ -3,7 +3,7 @@ import psycopg2
 import pickle
 from game_logic import Game
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
 
 def get_db_connection():
     if not DATABASE_URL:

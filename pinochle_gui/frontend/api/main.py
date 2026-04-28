@@ -15,10 +15,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize DB table on startup if needed
-@app.on_event("startup")
-def on_startup():
-    db.init_db()
+# Initialize DB table on load for serverless
+db.init_db()
 
 class JoinRequest(BaseModel):
     seat_index: int
