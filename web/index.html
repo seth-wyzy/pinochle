@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Family Pinochle</title>
+    <title>Pinochle</title>
+    <link rel="icon" href="spade.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -20,7 +21,7 @@
       </section>
 
       <section id="game" class="game hidden">
-        <header class="game-header"><div><p class="eyebrow">Room <span id="room-code">----</span></p><h2>Saturday Night Pinochle</h2></div><button id="leave" class="secondary">Leave table</button></header>
+        <header class="game-header"><div><p class="eyebrow">Room <span id="room-code">----</span></p><h2>Pinochle</h2></div><button id="leave" class="secondary">Leave table</button></header>
         <div class="game-layout">
           <div class="table-wrap"><div class="table"><div class="seat north"><span class="avatar">N</span><strong id="north-name">North · AI</strong><small id="north-meld">meld 0</small></div><div class="seat east"><span class="avatar">E</span><strong id="east-name">East · AI</strong><small id="east-meld">meld 0</small></div><div class="seat west"><span class="avatar">W</span><strong id="west-name">West · AI</strong><small id="west-meld">meld 0</small></div><div class="seat south"><span class="avatar">S</span><strong id="south-name">You</strong><small id="south-meld">meld 0</small></div><div class="revealed-meld north" id="north-reveal"></div><div class="revealed-meld east" id="east-reveal"></div><div class="revealed-meld west" id="west-reveal"></div><div class="revealed-meld south" id="south-reveal"></div><div class="trick"><span>Trump: <b id="trump">Not chosen</b></span><div class="played" id="played"></div><small id="message">Connecting…</small></div><div class="hand seat-2" id="hand"></div></div></div>
           <aside class="scoreboard"><div class="score-head"><span>Us</span><span>Them</span></div><div class="score-row"><b id="us-score">0</b><b id="them-score">0</b></div><div class="score-label">Meld + trick points</div><hr /><p>Dealer <strong id="dealer">—</strong></p><p>Bid winner <strong id="bid-winner">—</strong></p><p>Phase <strong id="phase">Bidding</strong></p><p>Current bid <strong id="bid">20</strong></p><input id="bid-input" class="full" type="number" min="21" step="1" value="21" aria-label="Bid amount" /><select id="trump-select" class="full"><option value="0">♣ Clubs</option><option value="1">♦ Diamonds</option><option value="2">♥ Hearts</option><option value="3" selected>♠ Spades</option></select><button class="primary full" id="bid-button">Bid 21</button><button class="secondary full" id="pass-button">Pass</button><button class="primary full hidden" id="meld-button">Submit meld</button><h3>Team meld</h3><ul class="meld-list" id="meld-list"></ul><h3>Round activity</h3><ol class="activity" id="activity"></ol></aside>
