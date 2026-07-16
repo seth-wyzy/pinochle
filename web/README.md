@@ -8,4 +8,4 @@ Key endpoints are `POST /api/rooms`, `POST /api/rooms/:code/join`, `GET /api/roo
 
 ## Hosting
 
-`render.yaml` provisions a free Render PostgreSQL instance and passes its internal connection string as `DATABASE_URL` to the web service. The service runs migrations before listening and exposes `GET /health` for Render health checks. Free services can cold-start after inactivity, but active games resume from their stored snapshot.
+For a no-cost hosted setup, create a free Neon Postgres project and provide its pooled connection string as `DATABASE_URL` when Render creates the Blueprint. The Blueprint only provisions Render's free web service; it does not create a Render database. The service runs migrations before listening and exposes `GET /health` for Render health checks. Free services can cold-start after inactivity, but active games resume from their stored snapshot.
