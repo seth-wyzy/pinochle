@@ -1,5 +1,6 @@
 {
   "name": "pinochle-web",
   "private": true,
-  "scripts": { "start": "node server.js" }
+  "scripts": { "start": "node server.js", "check": "node --check server.js" },
+  "dependencies": { "pg": "^8.13.1" }
 }

@@ -1,15 +1,15 @@
 const $ = s => document.querySelector(s);
-let roomCode = '', playerId = '', timer, selectedMeld = new Set();
+let roomCode = '', seatToken = '', timer, selectedMeld = new Set();
 const names = ['north', 'east', 'south', 'west'];
 const label = rank => ({ 11: 'J', 12: 'Q', 13: 'K', 14: '10', 15: 'A' }[rank] || rank);
 const suitSymbol = suit => ['♣', '♦', '♥', '♠'][suit] || '';
 const suitOrder = suit => [0, 1, 3, 2].indexOf(suit);
 
 async function request(url, options) { const r = await fetch(url, { ...options, headers: { 'content-type': 'application/json' } }); const b = await r.json(); if (!r.ok) { const error = new Error(b.error || 'Request failed'); error.status = r.status; throw error; } return b; }
-function enter(room, id) { roomCode = room.code; playerId = id; $('#room-code').textContent = roomCode; $('#lobby').classList.add('hidden'); $('#game').classList.remove('hidden'); render(room); clearInterval(timer); timer = setInterval(refresh, 900); }
+function enter(room, token) { roomCode = room.code; seatToken = token; localStorage.setItem(`pinochle:${roomCode}`, seatToken); $('#room-code').textContent = roomCode; $('#lobby').classList.add('hidden'); $('#game').classList.remove('hidden'); render(room); clearInterval(timer); timer = setInterval(refresh, 900); }
 function render(room) {
   if (room.phase !== 'meld') selectedMeld.clear();
-  const mine = room.players.find(p => p.id === playerId); const displaySeat = seat => (seat - (mine?.seat ?? 2) + 6) % 4; const myTurn = mine && room.turn === mine.seat;
+  const mine = room.players.find(p => p.seat === room.mySeat) || room.players.find(p => p.seat === 2); const displaySeat = seat => (seat - (mine?.seat ?? 2) + 6) % 4; const myTurn = mine && room.turn === mine.seat;
   room.players.forEach(p => { const seat = names[displaySeat(p.seat)]; const target = $(`#${seat}-name`); if (target) target.textContent = p.name; const meld = $(`#${seat}-meld`); if (meld) meld.textContent = `meld ${p.meld}`; });
   $('#hand').className = 'hand seat-2';
   $('#bid').textContent = room.bid; $('#phase').textContent = room.phase[0].toUpperCase() + room.phase.slice(1); $('#message').textContent = room.message; $('#us-score').textContent = room.scores.us; $('#them-score').textContent = room.scores.them; $('#trump').textContent = room.trump == null ? 'Not chosen' : ['♣ Clubs', '♦ Diamonds', '♥ Hearts', '♠ Spades'][room.trump];
@@ -22,9 +22,9 @@ function render(room) {
   const bid = $('#bid-button'); const bidInput = $('#bid-input'); bidInput.min = room.bid + 1; if (Number(bidInput.value) <= room.bid) bidInput.value = room.bid + 1; bidInput.disabled = !myTurn || room.phase !== 'bidding'; bid.disabled = !myTurn || !['bidding', 'trump'].includes(room.phase); bid.textContent = room.phase === 'bidding' ? `Bid ${bidInput.value}` : room.phase === 'trump' ? 'Choose trump' : 'Playing'; bidInput.oninput = () => { if (room.phase === 'bidding') bid.textContent = `Bid ${bidInput.value}`; }; bid.onclick = () => room.phase === 'trump' ? act({ type: 'trump', value: $('#trump-select').value }) : act({ type: 'bid', value: Number(bidInput.value) });
   $('#pass-button').disabled = !myTurn || room.phase !== 'bidding'; $('#pass-button').onclick = () => act({ type: 'pass' }); const meldButton = $('#meld-button'); const showingMeld = room.phase === 'meld' && myTurn; const showingResult = room.phase === 'meld-result'; meldButton.classList.toggle('hidden', !showingMeld && !showingResult); meldButton.disabled = !showingMeld && !showingResult; meldButton.textContent = showingResult ? 'Begin trick play' : 'Submit meld'; meldButton.onclick = () => { if (showingResult) return act({ type: 'continue' }); selectedMeld = new Set([...selectedMeld].filter(id => sortedHand.some(c => c.id === id))); act({ type: 'meld', cardIds: [...selectedMeld] }); };
 }
-function returnToLobby(message) { clearInterval(timer); selectedMeld.clear(); roomCode = ''; playerId = ''; $('#game').classList.add('hidden'); $('#lobby').classList.remove('hidden'); $('#room-hint').textContent = message; }
-async function refresh() { try { render((await request(`/api/rooms/${roomCode}?playerId=${playerId}`)).room); } catch (e) { if (e.status === 404) return returnToLobby('That room is no longer available. Create or join a new table.'); $('#message').textContent = e.message; } }
-async function act(action) { try { render((await request(`/api/rooms/${roomCode}/actions`, { method: 'POST', body: JSON.stringify({ ...action, playerId }) })).room); } catch (e) { $('#message').textContent = e.message; } }
-$('#create').onclick = async () => { try { const d = await request('/api/rooms', { method: 'POST', body: JSON.stringify({ name: $('#name').value, players: 4 }) }); enter(d.room, d.playerId); } catch (e) { $('#room-hint').textContent = e.message; } };
-$('#join').onclick = async () => { try { const code = $('#room-input').value.trim().toUpperCase(); const d = await request(`/api/rooms/${code}/join`, { method: 'POST', body: JSON.stringify({ name: $('#name').value }) }); enter(d.room, d.playerId); } catch (e) { $('#room-hint').textContent = e.message; } };
+function returnToLobby(message) { clearInterval(timer); selectedMeld.clear(); roomCode = ''; seatToken = ''; $('#game').classList.add('hidden'); $('#lobby').classList.remove('hidden'); $('#room-hint').textContent = message; }
+async function refresh() { try { render((await request(`/api/rooms/${roomCode}?seatToken=${encodeURIComponent(seatToken)}`)).room); } catch (e) { if (e.status === 404) return returnToLobby('That room is no longer available. Create or join a new table.'); $('#message').textContent = e.message; } }
+async function act(action) { try { render((await request(`/api/rooms/${roomCode}/actions`, { method: 'POST', body: JSON.stringify({ ...action, seatToken }) })).room); } catch (e) { $('#message').textContent = e.message; } }
+$('#create').onclick = async () => { try { const d = await request('/api/rooms', { method: 'POST', body: JSON.stringify({ name: $('#name').value, players: 4 }) }); enter(d.room, d.seatToken); } catch (e) { $('#room-hint').textContent = e.message; } };
+$('#join').onclick = async () => { try { const code = $('#room-input').value.trim().toUpperCase(); const saved = localStorage.getItem(`pinochle:${code}`); if (saved) { const d = await request(`/api/rooms/${code}?seatToken=${encodeURIComponent(saved)}`); return enter(d.room, saved); } const d = await request(`/api/rooms/${code}/join`, { method: 'POST', body: JSON.stringify({ name: $('#name').value }) }); enter(d.room, d.seatToken); } catch (e) { $('#room-hint').textContent = e.message; } };
 $('#leave').onclick = () => returnToLobby('');

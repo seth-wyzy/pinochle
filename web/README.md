@@ -1,11 +1,11 @@
 # Web prototype
 
-Run `npm start` from the repository root, then open `http://localhost:8787`. The Node server serves this UI and keeps rooms in memory. Create a room, share its four-character code, and another browser can join an open AI seat. Clients poll the room state and send bid/play actions to the server.
+Set `DATABASE_URL` to a PostgreSQL connection string, then run `npm install` and `npm start` from the repository root. The server applies the SQL migration at startup and serves the UI at `http://localhost:8787`. Create a room, share its eight-character code, and another browser can join an open AI seat. Clients poll the room state and send bid/play actions to the server.
 
-The current server implements the network boundary and a playable bidding/trick loop with AI seats. State is intentionally in memory for development; use a database and WebSockets/SSE for production. The existing C++ game should next move its bidding, meld, trump, and trick logic into a UI-independent rules module; browser actions can then call that module through the server while AI turns continue to use `AIPlayer`.
+Rooms, seats, and the activity history are persisted in PostgreSQL for 30 days. A browser-held, 256-bit seat token is stored in local storage and is required to read or act for a seat; it is returned only when that seat is created or joined. Timed AI and phase transitions are persisted as due actions, so a later poll safely resumes them after a restart or cold start.
 
-Key endpoints are `POST /api/rooms`, `POST /api/rooms/:code/join`, `GET /api/rooms/:code?playerId=...`, and `POST /api/rooms/:code/actions`.
+Key endpoints are `POST /api/rooms`, `POST /api/rooms/:code/join`, `GET /api/rooms/:code?seatToken=...`, and `POST /api/rooms/:code/actions`.
 
 ## Hosting
 
-Deploy the repository to a container host such as Render, Railway, Fly.io, or a small VPS. The included `Dockerfile` runs the server and respects the host-provided `PORT`. For Render/Railway, create a web service from the repository and use `npm start` as the start command (or deploy the Dockerfile). Rooms are currently held in memory, so a restart clears active tables; add Redis or a database before treating the service as production-critical.
+`render.yaml` provisions a free Render PostgreSQL instance and passes its internal connection string as `DATABASE_URL` to the web service. The service runs migrations before listening and exposes `GET /health` for Render health checks. Free services can cold-start after inactivity, but active games resume from their stored snapshot.
