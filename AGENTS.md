@@ -24,3 +24,123 @@ Add focused tests for card comparison, rank/suit display, dealing, bidding, meld
 ## Commit & Pull Request Guidelines
 
 Recent history uses short, informal summaries. Improve on that pattern with concise, imperative subjects such as `Add meld scoring tests`; keep each commit limited to one logical change. Pull requests should explain gameplay or architectural effects, list build/test commands run, and link related issues. Include terminal output or screenshots when a change affects interactive behavior, and call out any rules assumptions reviewers should verify.
+
+## Basic JavaScript Style Guidelines
+
+This document outlines basic style guidelines for writing clean, consistent, and maintainable JavaScript code.
+
+### 1. Formatting & Indentation
+
+*   **Indentation:** Use 4 spaces for indentation. Do not use tabs.
+*   **Semicolons:** Always use semicolons to terminate statements.
+*   **Line Length:** Keep lines under 80-100 characters for readability.
+*   **Quotes:** Use single quotes (`'`) for strings, unless the string contains single quotes, in which case double quotes (`"`) or template literals (`` ` ``) are acceptable. Use template literals for string interpolation.
+
+```javascript
+// Good
+const message = 'Hello, world!';
+const greeting = `Hello, ${name}!`;
+
+// Bad
+const message = "Hello, world!";
+```
+
+### 2. Variables and Constants
+
+*   **Declaration:** Always use `const` or `let`. Never use `var`.
+*   **Immutability:** Default to `const`. Only use `let` when you know the variable's value will change.
+*   **Naming:** Use `camelCase` for variable names.
+
+```javascript
+// Good
+const MAX_COUNT = 10; // UPPER_SNAKE_CASE for global constants
+let currentCount = 0;
+const userName = 'Alice';
+
+// Bad
+var count = 0;
+let user_name = 'Alice';
+```
+
+### 3. Functions
+
+*   **Naming:** Use `camelCase` for function names. Names should typically be verbs or action phrases.
+*   **Arrow Functions:** Use arrow functions (`() => {}`) for anonymous functions and callbacks, especially when you need to preserve the lexical scope of `this`.
+*   **Default Parameters:** Use default parameters instead of checking for `undefined`.
+
+```javascript
+// Good
+function calculateArea(width, height = 10) {
+    return width * height;
+}
+
+const numbers = [1, 2, 3];
+const doubled = numbers.map(n => n * 2);
+
+// Bad
+function calculate_area(width, height) {
+  height = height || 10;
+  return width * height;
+}
+```
+
+### 4. Objects and Arrays
+
+*   **Trailing Commas:** Include trailing commas in multiline object and array literals. This makes version control diffs cleaner.
+*   **Destructuring:** Use object and array destructuring when accessing multiple properties or elements.
+
+```javascript
+// Good
+const user = {
+    firstName: 'John',
+    lastName: 'Doe',
+    age: 30, // Trailing comma
+};
+
+const { firstName, lastName } = user;
+
+// Bad
+const user = {
+  firstName: 'John',
+  lastName: 'Doe',
+  age: 30
+};
+const firstName = user.firstName;
+```
+
+### 5. Control Flow
+
+*   **Equality:** Always use strict equality (`===` and `!==`) instead of loose equality (`==` and `!=`).
+*   **Ternary Operators:** Use ternary operators for simple conditional assignments, but avoid nesting them.
+
+```javascript
+// Good
+if (count === 0) {
+    // ...
+}
+
+const status = isActive ? 'Active' : 'Inactive';
+
+// Bad
+if (count == 0) {
+  // ...
+}
+```
+
+### 6. Classes
+
+*   **Naming:** Use `PascalCase` for class names.
+*   **Methods:** Use method shorthand syntax in object literals and classes.
+
+```javascript
+// Good
+class UserProfile {
+    constructor(name) {
+        this.name = name;
+    }
+
+    getName() {
+        return this.name;
+    }
+}
+```
