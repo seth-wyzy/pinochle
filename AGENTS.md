@@ -25,6 +25,63 @@ Add focused tests for card comparison, rank/suit display, dealing, bidding, meld
 
 Recent history uses short, informal summaries. Improve on that pattern with concise, imperative subjects such as `Add meld scoring tests`; keep each commit limited to one logical change. Pull requests should explain gameplay or architectural effects, list build/test commands run, and link related issues. Include terminal output or screenshots when a change affects interactive behavior, and call out any rules assumptions reviewers should verify.
 
+## Basic C++ Style Guidelines
+
+This document outlines basic style guidelines for writing clean, consistent, and maintainable C++ code based on the existing codebase.
+
+### 1. Formatting & Indentation
+
+*   **Indentation:** Use 4 spaces for indentation. Do not use tabs.
+*   **Braces:** Use "Egyptian" style braces (open brace on the same line as the control statement/function signature with a preceding space, close brace on its own line).
+*   **Line Length:** Keep lines under 80-100 characters for readability.
+
+```cpp
+// Good
+void print_card() const {
+    if (rank == 9) {
+        std::cout << "9";
+    }
+}
+
+// Bad
+void print_card() const
+{
+  if (rank == 9) std::cout << "9";
+}
+```
+
+### 2. Naming Conventions
+
+*   **Types & Classes:** Match the component style. Legacy code has mixed casing (`card` is lowercase, while `Pin` and `AIPlayer` are `PascalCase`). Prefer `PascalCase` for new classes.
+*   **Methods & Functions:** Match the style of the file/class:
+    *   Use `snake_case` (e.g., `initialize_deck()`, `count_meld()`) for utility functions and card-related helpers in `Pin` or `card`.
+    *   Use `camelCase` (e.g., `chooseMove()`, `startRound()`) for AI players and trick-taking flow controls.
+*   **Variables:** Use `camelCase` or lowercase for local variables and member variables (e.g., `trumpSuit`, `followSuit`, `deck`).
+
+### 3. File Structure & Header Rules
+
+*   **One Class per File:** Maintain one class declaration per header/source pair.
+*   **Include Guards:** Always protect headers with standard `#ifndef` / `#define` / `#endif` include guards matching the filename in uppercase (e.g., `CARD_H`).
+*   **Include Ordering:**
+    1. Include the corresponding project header first (e.g., `#include "Pin.h"` first in `Pin.cpp`).
+    2. Include other project-specific headers (e.g., `#include "card.h"`).
+    3. Include standard library headers in alphabetical order.
+
+```cpp
+// Good: Pin.cpp
+#include "Pin.h"
+#include "card.h"
+#include <algorithm>
+#include <vector>
+```
+
+### 4. Language Standard & Idioms
+
+*   **Standard Library:** Prefer standard-library containers (`std::vector`, `std::map`) and algorithms (`std::sort`, `std::shuffle`) over raw implementations.
+*   **Const Correctness:** Use `const` for member functions that do not modify class state (e.g., `void print_card() const;`).
+*   **Pass-by-Reference:** Pass non-primitive parameters by reference-to-const to avoid copying (e.g., `const std::vector<card>& hand`).
+*   **Modern Loops:** Use range-based `for` loops (`for (const auto& item : container)`) for clarity and safety.
+
 ## Basic JavaScript Style Guidelines
 
 This document outlines basic style guidelines for writing clean, consistent, and maintainable JavaScript code.

@@ -139,14 +139,33 @@ function legalCards(hand, trick, trump) {
     if (trick.length === 0) {
         return hand;
     }
-    const follow = hand.filter(c => c.suit === trick[0].card.suit);
+    const leadSuit = trick[0].card.suit;
+    const follow = hand.filter(c => c.suit === leadSuit);
+    
+    const bestPlay = trickWinner(trick, trump);
+    const bestCard = bestPlay.card;
+    
     if (follow.length > 0) {
+        if (bestCard.suit === leadSuit) {
+            const beaters = follow.filter(c => c.rank > bestCard.rank);
+            if (beaters.length > 0) {
+                return beaters;
+            }
+        }
         return follow;
     }
+    
     const trumpCards = hand.filter(c => c.suit === trump);
     if (trumpCards.length > 0) {
+        if (bestCard.suit === trump) {
+            const beaters = trumpCards.filter(c => c.rank > bestCard.rank);
+            if (beaters.length > 0) {
+                return beaters;
+            }
+        }
         return trumpCards;
     }
+    
     return hand;
 }
 

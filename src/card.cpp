@@ -113,3 +113,75 @@ bool operator<(const card& lhs, const card& rhs){
 bool operator>(const card& lhs, const card& rhs){
     return lhs.rank > rhs.rank;
 }
+
+card getWinningCard(const std::vector<card>& trickCards, int trump) {
+    if (trickCards.empty()) {
+        return card();
+    }
+    card bestCard = trickCards[0];
+    for (size_t i = 1; i < trickCards.size(); ++i) {
+        card c = trickCards[i];
+        if (c.suit == bestCard.suit) {
+            if (c.rank > bestCard.rank) {
+                bestCard = c;
+            }
+        } else if (c.suit == trump) {
+            bestCard = c;
+        }
+    }
+    return bestCard;
+}
+
+std::vector<card> getLegalCards(const std::vector<card>& hand, const std::vector<card>& trickCards, int trump) {
+    if (trickCards.empty()) {
+        return hand;
+    }
+    
+    int leadSuit = trickCards[0].suit;
+    std::vector<card> followSuit;
+    std::vector<card> trumps;
+    
+    for (const auto& c : hand) {
+        if (c.suit == leadSuit) {
+            followSuit.push_back(c);
+        }
+        if (c.suit == trump) {
+            trumps.push_back(c);
+        }
+    }
+    
+    card bestCard = getWinningCard(trickCards, trump);
+    
+    if (!followSuit.empty()) {
+        if (bestCard.suit == leadSuit) {
+            std::vector<card> beaters;
+            for (const auto& c : followSuit) {
+                if (c.rank > bestCard.rank) {
+                    beaters.push_back(c);
+                }
+            }
+            if (!beaters.empty()) {
+                return beaters;
+            }
+        }
+        return followSuit;
+    }
+    
+    if (!trumps.empty()) {
+        if (bestCard.suit == trump) {
+            std::vector<card> beaters;
+            for (const auto& c : trumps) {
+                if (c.rank > bestCard.rank) {
+                    beaters.push_back(c);
+                }
+            }
+            if (!beaters.empty()) {
+                return beaters;
+            }
+        }
+        return trumps;
+    }
+    
+    return hand;
+}
+

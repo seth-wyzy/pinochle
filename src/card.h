@@ -5,6 +5,7 @@
 #include <bitset>
 #include <iostream>
 #include <string>
+#include <vector>
 
 class card {
 
@@ -21,5 +22,9 @@ public:
     friend bool operator<(const card& lhs, const card& rhs);
     friend bool operator>(const card& lhs, const card& rhs);
 };
+
+// Helper functions for Pinochle trick rules
+card getWinningCard(const std::vector<card>& trickCards, int trump);
+std::vector<card> getLegalCards(const std::vector<card>& hand, const std::vector<card>& trickCards, int trump);
 
 #endif

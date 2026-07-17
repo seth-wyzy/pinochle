@@ -31,62 +31,35 @@ void AIPlayer::startRound(std::vector<card> deltHand) {
 * not having a card of the same suit, and not having trump --> have to know who's leading
 */
 card AIPlayer::chooseMove(std::vector<card> currTrick, bool leader, int trump) {
-    if (currTrick.empty()) { 
-        // Leading: for now, just play the highest card
-        card toPlay = myHand[0];
-        int index = 0;
-        for (int i = 1; i < myHand.size(); i++) {
-            if (myHand[i].rank > toPlay.rank) {
-                toPlay = myHand[i];
-                index = i;
+    std::vector<card> legal = getLegalCards(myHand, currTrick, trump);
+    
+    if (currTrick.empty()) {
+        // Leading: play the highest rank card in legal
+        card toPlay = legal[0];
+        for (const auto& c : legal) {
+            if (c.rank > toPlay.rank) {
+                toPlay = c;
             }
         }
         return toPlay;
     }
-
-    card leadCard = currTrick[0];
-    card bestCardInTrick = currTrick[0];
-    for (const auto& c : currTrick) {
-        if (c.suit == bestCardInTrick.suit) {
-            if (c.rank > bestCardInTrick.rank) bestCardInTrick = c;
-        } else if (c.suit == trump) {
-            bestCardInTrick = c;
+    
+    card bestCard = getWinningCard(currTrick, trump);
+    std::vector<card> winningPlays;
+    for (const auto& c : legal) {
+        if ((c.suit == bestCard.suit && c.rank > bestCard.rank) ||
+            (c.suit == trump && bestCard.suit != trump)) {
+            winningPlays.push_back(c);
         }
     }
-
-    std::vector<card> followSuit;
-    std::vector<card> trumps;
-    for (const auto& c : myHand) {
-        if (c.suit == leadCard.suit) followSuit.push_back(c);
-        if (c.suit == trump) trumps.push_back(c);
+    
+    if (!winningPlays.empty()) {
+        // Play the lowest winning card (the first one, since it is sorted ascending by rank)
+        return winningPlays[0];
     }
-
-    if (!followSuit.empty()) {
-        // Must follow suit. Try to beat best card if it's the same suit
-        if (bestCardInTrick.suit == leadCard.suit) {
-            for (const auto& c : followSuit) {
-                if (c.rank > bestCardInTrick.rank) return c;
-            }
-        }
-        // Can't beat or teammate is winning? Just play lowest follow suit
-        return followSuit.back(); 
-    }
-
-    if (!trumps.empty()) {
-        // Must trump if no follow suit. Try to beat best card if it's trump
-        if (bestCardInTrick.suit == trump) {
-            for (const auto& c : trumps) {
-                if (c.rank > bestCardInTrick.rank) return c;
-            }
-        } else {
-            // Trump is not played yet, any trump wins
-            return trumps.back();
-        }
-        return trumps.back();
-    }
-     
-    // Can't follow suit or trump, play anything (lowest)
-    return myHand.back();
+    
+    // Cannot win, play the lowest card in legal
+    return legal[0];
 }
 
 int AIPlayer::chooseBid(int currBid) { 

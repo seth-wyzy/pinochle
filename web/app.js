@@ -27,6 +27,51 @@ const suitOrder = (suit) => {
     return [0, 1, 3, 2].indexOf(suit);
 };
 
+const legalCards = (hand, trick, trump) => {
+    if (!trick || trick.length === 0) {
+        return hand;
+    }
+    const leadSuit = trick[0].card.suit;
+    const follow = hand.filter(c => c.suit === leadSuit);
+    
+    let bestPlay = trick[0];
+    for (let i = 1; i < trick.length; i++) {
+        const play = trick[i];
+        const card = play.card;
+        const best = bestPlay.card;
+        if (
+            (card.suit === best.suit && card.rank > best.rank) ||
+            (card.suit === trump && best.suit !== trump)
+        ) {
+            bestPlay = play;
+        }
+    }
+    const bestCard = bestPlay.card;
+    
+    if (follow.length > 0) {
+        if (bestCard.suit === leadSuit) {
+            const beaters = follow.filter(c => c.rank > bestCard.rank);
+            if (beaters.length > 0) {
+                return beaters;
+            }
+        }
+        return follow;
+    }
+    
+    const trumpCards = hand.filter(c => c.suit === trump);
+    if (trumpCards.length > 0) {
+        if (bestCard.suit === trump) {
+            const beaters = trumpCards.filter(c => c.rank > bestCard.rank);
+            if (beaters.length > 0) {
+                return beaters;
+            }
+        }
+        return trumpCards;
+    }
+    
+    return hand;
+};
+
 async function request(url, options) {
     const r = await fetch(url, {
         ...options,
@@ -164,9 +209,14 @@ function render(room) {
         el.textContent = `${label(c.rank)}${suitSymbol(c.suit)}`;
         
         const selectingMeld = room.phase === 'meld' && myTurn;
+        let isCardLegal = true;
+        if (room.phase === 'playing' && myTurn && !selectingMeld) {
+            const legal = legalCards(sortedHand, room.trick || [], room.trump);
+            isCardLegal = legal.some(lc => lc.id === c.id);
+        }
         el.disabled =
             room.phase === 'complete' ||
-            (!selectingMeld && (room.phase !== 'playing' || !myTurn));
+            (!selectingMeld && (room.phase !== 'playing' || !myTurn || !isCardLegal));
             
         el.onclick = () => {
             if (selectingMeld) {

@@ -218,10 +218,10 @@ int Pin::bidding() {
 
     if (bidderWinner == -1) {
         bidderWinner = dealer;
-        currHigh = 21;
+        currHigh = 20;
         std::cout << "Everyone passed. Dealer (";
         print_person(dealer);
-        std::cout << ") is stuck with 21." << std::endl;
+        std::cout << ") is stuck with 20." << std::endl;
     }
 
     std::cout << "Winner of bidding: ";
@@ -395,13 +395,22 @@ std::map<int, card> Pin::trick() {
                     continue;
                 }
                 chosen_card = card(r, s, 0);
-                auto it = std::find(allHands[h]->begin(), allHands[h]->end(), chosen_card);
-                if (it != allHands[h]->end()) {
-                    // TODO: Add actual pinochle rule validation here for human
-                    valid = true;
-                    allHands[h]->erase(it);
+                std::vector<card> legal = getLegalCards(*allHands[h], trick_vec, trumpSuit);
+                auto legal_it = std::find(legal.begin(), legal.end(), chosen_card);
+                if (legal_it != legal.end()) {
+                    auto hand_it = std::find(allHands[h]->begin(), allHands[h]->end(), chosen_card);
+                    if (hand_it != allHands[h]->end()) {
+                        chosen_card = *hand_it;
+                        allHands[h]->erase(hand_it);
+                        valid = true;
+                    }
                 } else {
-                    std::cout << "Card not in hand. Try again: ";
+                    auto hand_it = std::find(allHands[h]->begin(), allHands[h]->end(), chosen_card);
+                    if (hand_it != allHands[h]->end()) {
+                        std::cout << "Illegal card play. You must follow Pinochle rules (follow suit, trump, must-win). Try again: ";
+                    } else {
+                        std::cout << "Card not in hand. Try again: ";
+                    }
                 }
             }
         } else { // AI
@@ -531,64 +540,24 @@ void Pin::sortHands() {
 }
 
 bool Pin::checkTricks(std::map<int, card> currTrick, int startPlayer) {
-    if (currTrick[(startPlayer+1)%4].suit != currTrick[(startPlayer+0)%4].suit && currTrick[1].suit != trumpSuit) {
-        for (const auto& card: *allHands[(startPlayer+1)%4]) {
-            if (card.suit == trumpSuit) {
-                return false;
+    std::vector<card> trickCards;
+    for (int i = 0; i < 4; ++i) {
+        int h = (startPlayer + i) % 4;
+        std::vector<card> handBeforePlay = *allHands[h];
+        handBeforePlay.push_back(currTrick[h]);
+        
+        std::vector<card> legal = getLegalCards(handBeforePlay, trickCards, trumpSuit);
+        bool isLegal = false;
+        for (const auto& c : legal) {
+            if (c == currTrick[h]) {
+                isLegal = true;
+                break;
             }
         }
-    } else if (currTrick[(startPlayer+1)%4].rank <= currTrick[(startPlayer+0)%4].rank) {
-        for (const auto& card: *allHands[(startPlayer+1)%4]) {
-            if (card.suit == currTrick[(startPlayer+0)%4].suit && card.rank > currTrick[(startPlayer+0)%4].rank) {
-                return false;
-            }
+        if (!isLegal) {
+            return false;
         }
-    }
-    // next person
-    if (currTrick[(startPlayer+2)%4].suit != currTrick[(startPlayer+0)%4].suit && currTrick[(startPlayer+2)%4].suit != trumpSuit) {
-        for (const auto& card: *allHands[(startPlayer+2)%4]) {
-            if (card.suit == trumpSuit) {
-                return false;
-            }
-        }
-    } else if (currTrick[(startPlayer+2)%4].rank <= currTrick[(startPlayer+0)%4].rank) {
-        for (const auto& card: *allHands[(startPlayer+2)%4]) {
-            if (card.suit == currTrick[(startPlayer+0)%4].suit && card.rank > currTrick[(startPlayer+0)%4].rank) {
-                return false;
-            }
-        }
-    } else if (currTrick[(startPlayer+2)%4].rank <= currTrick[(startPlayer+1)%4].rank) {
-        for (const auto& card: *allHands[(startPlayer+2)%4]) {
-            if (card.suit == currTrick[(startPlayer+1)%4].suit && card.rank > currTrick[(startPlayer+1)%4].rank) {
-                return false;
-            }
-        }
-    }
-    // final person
-    if (currTrick[(startPlayer+3)%4].suit != currTrick[(startPlayer+0)%4].suit && currTrick[(startPlayer+3)%4].suit != trumpSuit) {
-        for (const auto& card: *allHands[(startPlayer+3)%4]) {
-            if (card.suit == trumpSuit) {
-                return false;
-            }
-        }
-    } else if (currTrick[(startPlayer+3)%4].rank <= currTrick[(startPlayer+0)%4].rank) {
-        for (const auto& card: *allHands[(startPlayer+3)%4]) {
-            if (card.suit == currTrick[(startPlayer+0)%4].suit && card.rank > currTrick[(startPlayer+0)%4].rank) {
-                return false;
-            }
-        }
-    } else if (currTrick[(startPlayer+3)%4].rank <= currTrick[(startPlayer+1)%4].rank) {
-        for (const auto& card: *allHands[(startPlayer+3)%4]) {
-            if (card.suit == currTrick[(startPlayer+1)%4].suit && card.rank > currTrick[(startPlayer+1)%4].rank) {
-                return false;
-            }
-        }
-    } else if (currTrick[(startPlayer+3)%4].rank <= currTrick[(startPlayer+2)%4].rank) {
-        for (const auto& card: *allHands[(startPlayer+3)%4]) {
-            if (card.suit == currTrick[(startPlayer+2)%4].suit && card.rank > currTrick[(startPlayer+2)%4].rank) {
-                return false;
-            }
-        }
+        trickCards.push_back(currTrick[h]);
     }
     return true;
 }
