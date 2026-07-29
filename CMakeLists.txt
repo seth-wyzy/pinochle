@@ -19,7 +19,23 @@ target_link_libraries(pin)
 
 option(BUILD_PYTHON_BINDINGS "Build the Pinochle Python extension" ON)
 if(BUILD_PYTHON_BINDINGS)
-    find_package(pybind11 CONFIG QUIET)
+    # Prefer the pybind11 package belonging to the Python used for training.
+    find_package(Python3 COMPONENTS Interpreter Development.Module QUIET)
+    if(Python3_Interpreter_FOUND AND Python3_Development.Module_FOUND)
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmakedir
+            OUTPUT_VARIABLE PYBIND11_CMAKE_DIR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE PYBIND11_CMAKE_RESULT
+            ERROR_QUIET
+        )
+        if(PYBIND11_CMAKE_RESULT EQUAL 0)
+            find_package(pybind11 CONFIG QUIET PATHS "${PYBIND11_CMAKE_DIR}")
+        endif()
+    endif()
+    if(NOT pybind11_FOUND)
+        find_package(pybind11 CONFIG QUIET)
+    endif()
     if(pybind11_FOUND)
         pybind11_add_module(pinochle_cpp
             ml/bindings/pinochle_module.cpp

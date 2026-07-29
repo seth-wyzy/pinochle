@@ -153,7 +153,7 @@ void test_training_game() {
         assert(!legalActions.empty());
         result = game.step_training(legalActions.front());
         ++decisions;
-        assert(decisions <= 12);
+        assert(decisions <= 48);
     }
 
     assert(game.training_hand().empty());

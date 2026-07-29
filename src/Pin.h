@@ -61,6 +61,7 @@ public:
     std::vector<int> legal_training_actions() const;
     TrainingStep step_training(int action);
     const std::vector<card>& training_hand() const;
+    const std::vector<card>& training_player_hand(int player) const;
     const std::vector<card>& training_trick() const;
     int training_trump() const;
     int training_phase() const;
@@ -120,7 +121,6 @@ private:
 
     void play_training_card(int player, int handIndex, float& reward);
     void resolve_training_trick(float& reward);
-    void advance_training_opponents(float& reward);
     int choose_training_trump(const std::vector<card>& cards);
 };
 

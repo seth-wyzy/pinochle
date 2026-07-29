@@ -622,14 +622,15 @@ std::vector<int> Pin::legal_training_actions() const {
     if (trainingPhase == 0) {
         return {12, 13, 14, 15, 16};
     }
-    if (trainingPhase != 1 || trainingCurrentPlayer != 2) {
+    if (trainingPhase != 1) {
         return {};
     }
 
     std::vector<int> actions;
-    const std::vector<card> legal = getLegalCards(hand, currTrick, trumpSuit);
-    for (int i = 0; i < static_cast<int>(hand.size()); ++i) {
-        if (std::find(legal.begin(), legal.end(), hand[i]) != legal.end()) {
+    const std::vector<card>& currentHand = *allHands.at(trainingCurrentPlayer);
+    const std::vector<card> legal = getLegalCards(currentHand, currTrick, trumpSuit);
+    for (int i = 0; i < static_cast<int>(currentHand.size()); ++i) {
+        if (std::find(legal.begin(), legal.end(), currentHand[i]) != legal.end()) {
             actions.push_back(i);
         }
     }
@@ -646,19 +647,17 @@ TrainingStep Pin::step_training(int action) {
 
     if (trainingPhase == 0) {
         if (action == 12) {
-            betWinner = 0;
-            trumpSuit = choose_training_trump(north);
+            betWinner = (trainingCurrentPlayer + 1) % 4;
+            trumpSuit = choose_training_trump(*allHands.at(betWinner));
         } else {
-            betWinner = 2;
+            betWinner = trainingCurrentPlayer;
             trumpSuit = action - 13;
         }
         tWinner = betWinner;
         trainingCurrentPlayer = tWinner;
         trainingPhase = 1;
-        advance_training_opponents(result.reward);
     } else {
-        play_training_card(2, action, result.reward);
-        advance_training_opponents(result.reward);
+        play_training_card(trainingCurrentPlayer, action, result.reward);
     }
 
     result.terminated = trainingPhase == 2;
@@ -666,7 +665,11 @@ TrainingStep Pin::step_training(int action) {
 }
 
 const std::vector<card>& Pin::training_hand() const {
-    return hand;
+    return training_player_hand(trainingCurrentPlayer);
+}
+
+const std::vector<card>& Pin::training_player_hand(int player) const {
+    return *allHands.at(player);
 }
 
 const std::vector<card>& Pin::training_trick() const {
@@ -741,17 +744,6 @@ void Pin::resolve_training_trick(float& reward) {
     trainingCurrentPlayer = winner;
     if (hand.empty()) {
         trainingPhase = 2;
-    }
-}
-
-void Pin::advance_training_opponents(float& reward) {
-    while (trainingPhase == 1 && trainingCurrentPlayer != 2) {
-        std::vector<card>& opponentHand = *allHands[trainingCurrentPlayer];
-        const std::vector<card> legal = getLegalCards(opponentHand, currTrick, trumpSuit);
-        const card chosen = legal.front();
-        const auto chosenIt = std::find(opponentHand.begin(), opponentHand.end(), chosen);
-        const int handIndex = static_cast<int>(chosenIt - opponentHand.begin());
-        play_training_card(trainingCurrentPlayer, handIndex, reward);
     }
 }
 

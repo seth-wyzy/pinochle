@@ -28,6 +28,8 @@ PYBIND11_MODULE(pinochle_cpp, module) {
         })
         .def_property_readonly("hand", &Pin::training_hand,
                                py::return_value_policy::reference_internal)
+        .def("player_hand", &Pin::training_player_hand, py::arg("player"),
+             py::return_value_policy::reference_internal)
         .def_property_readonly("trick", &Pin::training_trick,
                                py::return_value_policy::reference_internal)
         .def_property_readonly("trump", &Pin::training_trump)
