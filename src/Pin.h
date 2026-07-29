@@ -6,16 +6,22 @@
 #include <string>
 #include <random>
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include "card.h"
 #include "aiPlayer.h"
 
+struct TrainingStep {
+    float reward;
+    bool terminated;
+};
 
 // Class definition for Pin
 class Pin {
 public:
     // Constructor
     Pin();
+    void playGame();
 
     // Methods
     void initialize_deck();  
@@ -48,6 +54,19 @@ public:
     int allAiMeld();
     void suitAi(AIPlayer& ai);
     void allSuitAi();
+
+    // Non-interactive API used by the Python reinforcement-learning bindings.
+    // Actions 12-16 are bidding actions: pass, or bid 20 with trump 0-3.
+    void reset_training(std::uint32_t seed = 0);
+    std::vector<int> legal_training_actions() const;
+    TrainingStep step_training(int action);
+    const std::vector<card>& training_hand() const;
+    const std::vector<card>& training_trick() const;
+    int training_trump() const;
+    int training_phase() const;
+    int training_current_player() const;
+    int training_us_points() const;
+    int training_them_points() const;
     
 
 
@@ -93,6 +112,16 @@ private:
     std::vector<card> deck;
     std::vector<std::string> ranks = {"9", "J", "Q", "K", "10", "A"};
     std::vector<std::string> suits = {"Clubs", "Diamonds", "Hearts", "Spades"};
+
+    int trainingPhase = 0; // 0: bidding, 1: trick taking, 2: finished
+    int trainingCurrentPlayer = 2;
+    std::vector<int> trainingTrickPlayers;
+    std::mt19937 trainingRandom;
+
+    void play_training_card(int player, int handIndex, float& reward);
+    void resolve_training_trick(float& reward);
+    void advance_training_opponents(float& reward);
+    int choose_training_trump(const std::vector<card>& cards);
 };
 
 #endif // PIN_H

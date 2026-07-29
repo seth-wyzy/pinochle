@@ -6,13 +6,13 @@ const { Pool } = require('pg');
 
 const PORT = Number(process.env.PORT || 8787);
 const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
+if (!DATABASE_URL && require.main === module) {
     throw new Error('DATABASE_URL is required. Set it to a PostgreSQL connection string.');
 }
-const db = new Pool({
+const db = DATABASE_URL ? new Pool({
     connectionString: DATABASE_URL,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
-});
+}) : null;
 const RANKS = [9, 11, 12, 13, 14, 15];
 const SUITS = [0, 1, 2, 3];
 const SUIT_SYMBOLS = ['♣', '♦', '♥', '♠'];
@@ -1002,7 +1002,19 @@ async function start() {
     });
 }
 
-start().catch(error => {
-    console.error('Unable to start Pinochle:', error);
-    process.exit(1);
-});
+if (require.main === module) {
+    start().catch(error => {
+        console.error('Unable to start Pinochle:', error);
+        process.exit(1);
+    });
+} else {
+    module.exports = {
+        countMeld,
+        scoringCards,
+        legalCards,
+        trickWinner,
+        makeCard,
+        makeDeck,
+        cardPoints
+    };
+}

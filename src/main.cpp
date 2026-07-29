@@ -3,7 +3,7 @@
 
 int main() {
     Pin game;
-    
+    game.playGame();
 }
 
 

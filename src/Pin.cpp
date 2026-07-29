@@ -29,7 +29,9 @@ Pin::Pin() {
     playerArray[0] = new AIPlayer(0);
     playerArray[1] = new AIPlayer(1);
     playerArray[3] = new AIPlayer(3);
+}
 
+void Pin::playGame() {
     for (int i = 0; i < 4; i++) { // Let's play 4 rounds for testing or one full game
         std::cout << "\n--- Round " << i+1 << " ---\n";
         std::cout << "Dealer: ";
@@ -340,7 +342,7 @@ int Pin::count_meld(std::vector<card> hand, bool verbose){ // should only pass m
         }
     }
 
-        // Pinochle: Q♠ (12,3) + J♦ (11,1)
+        // Pinochle: Q diamonds (12,3) + J spades (11,1)
         int q_spades = suitRank[3][12];
         int j_diamonds = suitRank[1][11];
         int pinochles = std::min(q_spades, j_diamonds);
@@ -593,6 +595,179 @@ void Pin::allSuitAi() {
     }
 }
 
+void Pin::reset_training(std::uint32_t seed) {
+    trainingRandom.seed(seed);
+    deck.clear();
+    initialize_deck();
+    std::shuffle(deck.begin(), deck.end(), trainingRandom);
+    clear_hands();
+    deal_hands();
+    sortHands();
+
+    currTrick.clear();
+    trainingTrickPlayers.clear();
+    usCards.clear();
+    themCards.clear();
+    usPoints = 0;
+    themPoints = 0;
+    trumpSuit = -1;
+    bet = 20;
+    betWinner = -1;
+    tWinner = 2;
+    trainingCurrentPlayer = 2;
+    trainingPhase = 0;
+}
+
+std::vector<int> Pin::legal_training_actions() const {
+    if (trainingPhase == 0) {
+        return {12, 13, 14, 15, 16};
+    }
+    if (trainingPhase != 1 || trainingCurrentPlayer != 2) {
+        return {};
+    }
+
+    std::vector<int> actions;
+    const std::vector<card> legal = getLegalCards(hand, currTrick, trumpSuit);
+    for (int i = 0; i < static_cast<int>(hand.size()); ++i) {
+        if (std::find(legal.begin(), legal.end(), hand[i]) != legal.end()) {
+            actions.push_back(i);
+        }
+    }
+    return actions;
+}
+
+TrainingStep Pin::step_training(int action) {
+    TrainingStep result{0.0F, trainingPhase == 2};
+    const std::vector<int> legalActions = legal_training_actions();
+    if (std::find(legalActions.begin(), legalActions.end(), action) == legalActions.end()) {
+        result.reward = -1.0F;
+        return result;
+    }
+
+    if (trainingPhase == 0) {
+        if (action == 12) {
+            betWinner = 0;
+            trumpSuit = choose_training_trump(north);
+        } else {
+            betWinner = 2;
+            trumpSuit = action - 13;
+        }
+        tWinner = betWinner;
+        trainingCurrentPlayer = tWinner;
+        trainingPhase = 1;
+        advance_training_opponents(result.reward);
+    } else {
+        play_training_card(2, action, result.reward);
+        advance_training_opponents(result.reward);
+    }
+
+    result.terminated = trainingPhase == 2;
+    return result;
+}
+
+const std::vector<card>& Pin::training_hand() const {
+    return hand;
+}
+
+const std::vector<card>& Pin::training_trick() const {
+    return currTrick;
+}
+
+int Pin::training_trump() const {
+    return trumpSuit;
+}
+
+int Pin::training_phase() const {
+    return trainingPhase;
+}
+
+int Pin::training_current_player() const {
+    return trainingCurrentPlayer;
+}
+
+int Pin::training_us_points() const {
+    return usPoints;
+}
+
+int Pin::training_them_points() const {
+    return themPoints;
+}
+
+void Pin::play_training_card(int player, int handIndex, float& reward) {
+    std::vector<card>& playerHand = *allHands[player];
+    const card played = playerHand[handIndex];
+    playerHand.erase(playerHand.begin() + handIndex);
+    currTrick.push_back(played);
+    trainingTrickPlayers.push_back(player);
+    trainingCurrentPlayer = (player + 1) % 4;
+
+    if (currTrick.size() == 4) {
+        resolve_training_trick(reward);
+    }
+}
+
+void Pin::resolve_training_trick(float& reward) {
+    const card winningCard = getWinningCard(currTrick, trumpSuit);
+    int winner = trainingTrickPlayers.front();
+    for (std::size_t i = 0; i < currTrick.size(); ++i) {
+        if (currTrick[i] == winningCard) {
+            winner = trainingTrickPlayers[i];
+            break;
+        }
+    }
+
+    int trickPoints = 0;
+    for (const card& played : currTrick) {
+        if (played.rank >= 13) {
+            ++trickPoints;
+        }
+    }
+    if (hand.empty()) {
+        ++trickPoints;
+    }
+
+    const bool ourTeam = winner == 0 || winner == 2;
+    if (ourTeam) {
+        usPoints += trickPoints;
+        reward += static_cast<float>(trickPoints);
+    } else {
+        themPoints += trickPoints;
+        reward -= static_cast<float>(trickPoints);
+    }
+
+    currTrick.clear();
+    trainingTrickPlayers.clear();
+    tWinner = winner;
+    trainingCurrentPlayer = winner;
+    if (hand.empty()) {
+        trainingPhase = 2;
+    }
+}
+
+void Pin::advance_training_opponents(float& reward) {
+    while (trainingPhase == 1 && trainingCurrentPlayer != 2) {
+        std::vector<card>& opponentHand = *allHands[trainingCurrentPlayer];
+        const std::vector<card> legal = getLegalCards(opponentHand, currTrick, trumpSuit);
+        const card chosen = legal.front();
+        const auto chosenIt = std::find(opponentHand.begin(), opponentHand.end(), chosen);
+        const int handIndex = static_cast<int>(chosenIt - opponentHand.begin());
+        play_training_card(trainingCurrentPlayer, handIndex, reward);
+    }
+}
+
+int Pin::choose_training_trump(const std::vector<card>& cards) {
+    int bestSuit = 0;
+    int bestMeld = count_meld(cards, bestSuit, false);
+    for (int suit = 1; suit < 4; ++suit) {
+        const int meld = count_meld(cards, suit, false);
+        if (meld > bestMeld) {
+            bestMeld = meld;
+            bestSuit = suit;
+        }
+    }
+    return bestSuit;
+}
+
 
 
 int Pin::count_meld(std::vector<card> hand, int trump, bool verbose){ // should only pass meld hand in for actual playing becuase we want that element
@@ -670,7 +845,7 @@ int Pin::count_meld(std::vector<card> hand, int trump, bool verbose){ // should 
         }
     }
 
-        // Pinochle: Q♠ (12,3) + J♦ (11,1)
+        // Pinochle: Q spades (12,3) + J diamonds (11,1)
         int q_spades = suitRank[3][12];
         int j_diamonds = suitRank[1][11];
         int pinochles = std::min(q_spades, j_diamonds);
