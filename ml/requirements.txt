@@ -3,3 +3,6 @@ numpy>=1.24
 pybind11>=2.11
 stable-baselines3>=2.3
 sb3-contrib>=2.3
+onnx>=1.15
+onnxruntime>=1.17
+onnxscript

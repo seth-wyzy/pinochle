@@ -4,6 +4,14 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
 
+let onnxruntime = null;
+try {
+    onnxruntime = require('onnxruntime-node');
+} catch (error) {
+    // Keep the web game usable with the existing rule-based AI until the
+    // optional native ONNX runtime is installed.
+}
+
 const PORT = Number(process.env.PORT || 8787);
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL && require.main === module) {
@@ -17,6 +25,8 @@ const RANKS = [9, 11, 12, 13, 14, 15];
 const SUITS = [0, 1, 2, 3];
 const SUIT_SYMBOLS = ['♣', '♦', '♥', '♠'];
 const ROOM_TTL_DAYS = 30;
+const ONNX_MODEL_PATH = path.join(__dirname, 'web', 'models', 'pinochle_policy.onnx');
+let onnxSessionPromise;
 
 const makeCard = (rank, suit) => ({
     id: crypto.randomUUID(),
@@ -200,6 +210,74 @@ function aiMove(player, trick, trump) {
         return winningPlay;
     }
     return options.slice().sort((a, b) => a.rank - b.rank)[0];
+}
+
+const trainingCardIndex = (card) => {
+    const rankIndex = RANKS.indexOf(card.rank);
+    return card.suit * RANKS.length + rankIndex;
+};
+
+const trainingSortHand = (hand) => {
+    return hand.slice().sort((a, b) => a.suit - b.suit || a.rank - b.rank);
+};
+
+function modelObservation(player, trick, trump, score) {
+    const observation = new Float32Array(391);
+    const sortedHand = trainingSortHand(player.hand);
+    sortedHand.forEach((card, slot) => {
+        observation[slot * 24 + trainingCardIndex(card)] = 1;
+    });
+    trick.forEach((play, slot) => {
+        observation[288 + slot * 24 + trainingCardIndex(play.card)] = 1;
+    });
+    if (trump !== null && trump !== undefined) {
+        observation[384 + trump] = 1;
+    }
+    observation[388] = 0;
+    observation[389] = 1;
+    const usTeam = player.seat % 2 === 0;
+    observation[390] = usTeam
+        ? (score.us >= score.them ? 1 : 0)
+        : (score.them >= score.us ? 1 : 0);
+    return { observation, sortedHand };
+}
+
+async function loadOnnxSession() {
+    if (!onnxruntime) {
+        return null;
+    }
+    if (!onnxSessionPromise) {
+        onnxSessionPromise = onnxruntime.InferenceSession.create(ONNX_MODEL_PATH)
+            .catch(error => {
+                onnxSessionPromise = null;
+                console.error(`Unable to load ONNX policy: ${error.message}`);
+                return null;
+            });
+    }
+    return onnxSessionPromise;
+}
+
+async function modelAiMove(room, player) {
+    const session = await loadOnnxSession();
+    if (!session) {
+        return aiMove(player, room.trick, room.trump);
+    }
+
+    const { observation, sortedHand } = modelObservation(
+        player,
+        room.trick,
+        room.trump,
+        room.trickPoints,
+    );
+    const legal = legalCards(sortedHand, room.trick, room.trump);
+    const legalSlots = legal.map(card => sortedHand.findIndex(item => item.id === card.id));
+    const tensor = new onnxruntime.Tensor('float32', observation, [1, 391]);
+    const output = await session.run({ observation: tensor });
+    const logits = output.action_logits.data;
+    const selectedSlot = legalSlots.reduce((best, slot) => {
+        return logits[slot] > logits[best] ? slot : best;
+    }, legalSlots[0]);
+    return sortedHand[selectedSlot];
 }
 
 function addEvent(room, text) {
@@ -434,7 +512,7 @@ function advanceAi(room) {
     }
 }
 
-function applyDue(room) {
+async function applyDue(room) {
     if (!room.dueAction || room.dueAction.at > Date.now()) {
         return false;
     }
@@ -443,7 +521,7 @@ function applyDue(room) {
     
     if (action === 'ai-play' && room.phase === 'playing' && room.players[room.turn].ai) {
         const p = room.players[room.turn];
-        const card = aiMove(p, room.trick, room.trump);
+        const card = await modelAiMove(room, p);
         p.hand.splice(p.hand.indexOf(card), 1);
         room.trick.push({
             player: p.name,
@@ -574,7 +652,7 @@ async function processDueRoom(code) {
         const room = found.rows[0].snapshot;
         room.code = code;
         room.events = [];
-        if (!applyDue(room)) {
+        if (!await applyDue(room)) {
             await client.query('COMMIT');
             return;
         }
@@ -636,7 +714,7 @@ async function withRoom(code, token, mutate) {
         const room = found.rows[0].snapshot;
         room.code = code;
         room.events = [];
-        applyDue(room);
+        await applyDue(room);
         
         const result = await mutate(room, seat);
         
@@ -832,6 +910,8 @@ function serveFile(req, res) {
             contentType = 'text/css';
         } else if (file.endsWith('.js')) {
             contentType = 'text/javascript';
+        } else if (file.endsWith('.onnx') || file.endsWith('.onnx.data')) {
+            contentType = 'application/octet-stream';
         }
         
         res.writeHead(200, {

@@ -4,6 +4,44 @@ let roomCode = '';
 let seatToken = '';
 let timer;
 let selectedMeld = new Set();
+let policySessionPromise;
+
+const loadPinochlePolicy = () => {
+    if (!policySessionPromise) {
+        if (!globalThis.ort) {
+            policySessionPromise = Promise.reject(
+                new Error('ONNX Runtime Web is not loaded.'),
+            );
+        } else {
+            policySessionPromise = globalThis.ort.InferenceSession.create(
+                '/models/pinochle_policy.onnx',
+            );
+        }
+    }
+    return policySessionPromise;
+};
+
+const predictPinochleAction = async (observation, legalActions) => {
+    if (!legalActions.length) {
+        throw new Error('No legal actions are available.');
+    }
+    const session = await loadPinochlePolicy();
+    const input = new globalThis.ort.Tensor(
+        'float32',
+        Float32Array.from(observation),
+        [1, 391],
+    );
+    const result = await session.run({ observation: input });
+    const logits = result.action_logits.data;
+    return legalActions.reduce((best, candidate) => {
+        return logits[candidate] > logits[best] ? candidate : best;
+    }, legalActions[0]);
+};
+
+globalThis.pinochlePolicy = {
+    load: loadPinochlePolicy,
+    predict: predictPinochleAction,
+};
 
 const names = ['north', 'east', 'south', 'west'];
 
@@ -96,6 +134,9 @@ function enter(room, token) {
     $('#lobby').classList.add('hidden');
     $('#game').classList.remove('hidden');
     render(room);
+    loadPinochlePolicy().catch(error => {
+        console.warn('Pinochle ONNX policy unavailable:', error.message);
+    });
     clearInterval(timer);
     timer = setInterval(refresh, 900);
 }
