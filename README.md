@@ -238,3 +238,13 @@ Render will rebuild the service, install the native runtime, and restart with
 the new model. Keep the `.onnx.data` sidecar; deleting it makes the model
 unloadable.
 
+
+## Benchmark training speed and policy quality
+
+ml/benchmark.py compares the production C++ simulator accessed through pybind with a reference pure-Python implementation of the same non-interactive rules. It also evaluates the trained model team (seat 2 plus its partner) against three random legal-action opponents. The report records the seed, platform, timing samples, and a 95% Wilson confidence interval for win rate.
+
+Run a resume-quality benchmark with:
+
+    python ml/benchmark.py --mode all --steps 100000 --repeats 5 --games 5000
+
+The rollout metric is environment decisions per second; learn is end-to-end MaskablePPO timesteps per second, including model updates. Results print to the terminal and are saved to ml/benchmark_results.json (ignored by Git).

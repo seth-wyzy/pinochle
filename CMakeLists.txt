@@ -3,6 +3,11 @@ project(pin)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# A default Debug build makes the simulator benchmark misleadingly slow.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # Optional: add include directories if headers are in a different directory
 include_directories(include)
 

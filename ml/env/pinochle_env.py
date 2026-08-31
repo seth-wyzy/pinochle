@@ -61,6 +61,8 @@ class PinochleEnv(gym.Env[np.ndarray, int]):
             raise ValueError('policies must contain exactly one entry per seat.')
         self.render_mode = render_mode
         self.game = pinochle_cpp.PinochleGame()
+        self._nativeState: tuple[np.ndarray, np.ndarray, int, int, int, int, int] | None = None
+        self._nativeStatePlayer: int | None = None
         self.policies = list(policies) if policies is not None else [None] * 4
         self.policyPool = list(policy_pool) if policy_pool is not None else None
         self.activePolicies = list(self.policies)
@@ -81,11 +83,13 @@ class PinochleEnv(gym.Env[np.ndarray, int]):
     ) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
         self.game.reset(int(self.np_random.integers(0, 2**32 - 1)))
+        self._clear_native_state()
         self._select_episode_policies()
         _, terminated = self._advance_to_training_turn()
         return self._observation(2), self._info(2, terminated)
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        self._clear_native_state()
         reward, terminated = self.game.step(int(action))
         opponentReward, opponentTerminated = self._advance_to_training_turn()
         reward += opponentReward
@@ -107,6 +111,9 @@ class PinochleEnv(gym.Env[np.ndarray, int]):
 
     def action_masks(self) -> np.ndarray:
         """Return legal actions for MaskablePPO or custom action masking."""
+        state = self._native_state(self.game.current_player)
+        if state is not None:
+            return state[1]
         mask = np.zeros(self.action_space.n, dtype=bool)
         mask[self.game.legal_actions()] = True
         return mask
@@ -116,6 +123,9 @@ class PinochleEnv(gym.Env[np.ndarray, int]):
         return self.action_masks()
 
     def _observation(self, player_id: int) -> np.ndarray:
+        state = self._native_state(player_id)
+        if state is not None:
+            return state[0]
         observation = np.zeros(self.observation_space.shape, dtype=np.int8)
         for slot, card in enumerate(self.game.player_hand(player_id)):
             observation[slot * 24 + self._card_index(card)] = 1
@@ -152,6 +162,7 @@ class PinochleEnv(gym.Env[np.ndarray, int]):
             action_mask = self.action_masks()
             policy = self.activePolicies[player_id]
             action = self._policy_action(policy, self._observation(player_id), action_mask)
+            self._clear_native_state()
             stepReward, terminated = self.game.step(action)
             reward += float(stepReward)
         return reward, bool(terminated)
@@ -184,6 +195,17 @@ class PinochleEnv(gym.Env[np.ndarray, int]):
         return card.suit * 6 + rankIndex
 
     def _info(self, player_id: int, terminated: bool = False) -> dict[str, Any]:
+        state = self._native_state(player_id)
+        if state is not None:
+            _, actionMask, _, _, trump, usPoints, themPoints = state
+            return {
+                'action_mask': actionMask,
+                'player_id': player_id,
+                'terminated': terminated,
+                'trump': trump,
+                'us_points': usPoints,
+                'them_points': themPoints,
+            }
         return {
             'action_mask': self.action_masks(),
             'player_id': player_id,
@@ -192,6 +214,31 @@ class PinochleEnv(gym.Env[np.ndarray, int]):
             'us_points': self.game.us_points,
             'them_points': self.game.them_points,
         }
+
+    def _native_state(
+        self,
+        player_id: int,
+    ) -> tuple[np.ndarray, np.ndarray, int, int, int, int, int] | None:
+        """Fetch and cache one C++-built state per game turn."""
+        if not hasattr(self.game, 'training_state'):
+            return None
+        if self._nativeState is None or self._nativeStatePlayer != player_id:
+            state = self.game.training_state(player_id)
+            self._nativeState = (
+                np.asarray(state[0], dtype=np.int8),
+                np.asarray(state[1], dtype=bool),
+                int(state[2]),
+                int(state[3]),
+                int(state[4]),
+                int(state[5]),
+                int(state[6]),
+            )
+            self._nativeStatePlayer = player_id
+        return self._nativeState
+
+    def _clear_native_state(self) -> None:
+        self._nativeState = None
+        self._nativeStatePlayer = None
 
     def render(self) -> None:
         print(
