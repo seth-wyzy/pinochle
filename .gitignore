@@ -2,6 +2,10 @@ build/
 node_modules/
 .env
 Screenshot*
+ml/models/ppo_pinochle_*_steps.zip
+__pycache__/
+*.pyc
+inst.md
 
 
 ml/benchmark_results.json
