@@ -35,7 +35,9 @@ def main() -> None:
 
     model = MaskablePPO.load(args.checkpoint, device='cpu')
     policy = ExportablePolicy(model.policy).eval()
-    observationSize = model.observation_space.shape[0]
+    observationSize = 459
+    if hasattr(model, 'observation_space') and model.observation_space.shape:
+        observationSize = model.observation_space.shape[0]
     sample = torch.zeros((1, observationSize), dtype=torch.float32)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     torch.onnx.export(

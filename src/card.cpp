@@ -185,3 +185,20 @@ std::vector<card> getLegalCards(const std::vector<card>& hand, const std::vector
     return hand;
 }
 
+int card_index(const card& c) {
+    int rankOffset = -1;
+    switch (c.rank) {
+        case 9: rankOffset = 0; break;
+        case 11: rankOffset = 1; break;
+        case 12: rankOffset = 2; break;
+        case 13: rankOffset = 3; break;
+        case 14: rankOffset = 4; break;
+        case 15: rankOffset = 5; break;
+        default: return -1;
+    }
+    if (c.suit < 0 || c.suit > 3) {
+        return -1;
+    }
+    return c.suit * 6 + rankOffset;
+}
+

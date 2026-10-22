@@ -138,26 +138,153 @@ void test_nine_of_trump(Pin& game) {
     assert_meld(game, nines, 3, 2, "test_nine_of_trump");
 }
 
-void test_training_game() {
-    std::cout << "Running test_training_game..." << std::endl;
+void test_bidding_opening_bid_21() {
+    std::cout << "  Testing opening bid of 21..." << std::endl;
+    Pin game;
+    game.reset_training(42);
+    assert(game.training_phase() == 0);
+    assert(game.training_dealer() == 0);
+    assert(game.training_current_player() == 1);
+    assert(game.training_bid() == 20);
+    assert(game.training_bid_winner() == -1);
+
+    // Initial legal actions: Pass (12) + Bids 21..50 (13..42) = 31 actions
+    std::vector<int> legal = game.legal_training_actions();
+    assert(legal.size() == 31);
+    assert(legal.front() == 12);
+    assert(legal[1] == 13);
+    assert(legal.back() == 42);
+
+    // Player 1 opens with bid 21 (action 13)
+    TrainingStep step = game.step_training(13);
+    assert(!step.terminated);
+    assert(game.training_phase() == 0);
+    assert(game.training_bid() == 21);
+    assert(game.training_bid_winner() == 1);
+    assert(game.training_current_player() == 2);
+
+    // Player 2 legal bids must be > 21: Pass (12) + Bids 22..50 (14..42) = 30 actions
+    legal = game.legal_training_actions();
+    assert(legal.size() == 30);
+    assert(legal.front() == 12);
+    assert(legal[1] == 14);
+
+    // Player 2 passes
+    step = game.step_training(12);
+    assert(!step.terminated);
+    assert(game.training_current_player() == 3);
+
+    // Player 3 passes
+    step = game.step_training(12);
+    assert(!step.terminated);
+    assert(game.training_current_player() == 0);
+
+    // Player 0 (dealer) passes
+    step = game.step_training(12);
+    assert(!step.terminated);
+
+    // Auction complete! Player 1 won the auction at 21
+    assert(game.training_phase() == 1);
+    assert(game.training_bid() == 21);
+    assert(game.training_bid_winner() == 1);
+    assert(game.training_current_player() == 1);
+}
+
+void test_bidding_three_non_dealers_pass() {
+    std::cout << "  Testing 3 non-dealers pass -> dealer stuck with 20..." << std::endl;
+    Pin game;
+    game.reset_training(100);
+    assert(game.training_phase() == 0);
+    const int dealer = game.training_dealer();
+    assert(game.training_current_player() == (dealer + 1) % 4);
+
+    // First 2 non-dealers pass -> still in bidding phase
+    for (int i = 0; i < 2; ++i) {
+        assert(game.training_phase() == 0);
+        TrainingStep step = game.step_training(12);
+        assert(!step.terminated);
+        assert(game.training_phase() == 0);
+    }
+
+    // 3rd non-dealer passes -> dealer is immediately stuck with 20 without needing to act!
+    TrainingStep step = game.step_training(12);
+    assert(!step.terminated);
+    assert(game.training_phase() == 1); // Advanced to Trump Selection
+    assert(game.training_bid_winner() == dealer);
+    assert(game.training_bid() == 20);
+    assert(game.training_current_player() == dealer);
+}
+
+void test_training_game_full_flow() {
+    std::cout << "  Testing full auction -> trump selection -> trick play -> completion..." << std::endl;
     Pin game;
     game.reset_training(42);
     assert(game.training_hand().size() == 12);
     assert(game.training_phase() == 0);
-    assert(game.legal_training_actions().size() == 5);
 
-    TrainingStep result = game.step_training(13); // Bid 20, Clubs trump.
-    int decisions = 0;
-    while (!result.terminated) {
+    // Verify observation vector shape and baseline offsets
+    std::vector<float> obs = game.training_observation(game.training_current_player());
+    assert(static_cast<int>(obs.size()) == Pin::OBSERVATION_SIZE);
+    assert(Pin::OBSERVATION_SIZE == 459);
+    assert(obs[436] == 1.0f); // Phase 0 one-hot
+    assert(obs[439] == 20.0f / 50.0f); // Current bid 20 / 50
+    assert(obs[442] == 1.0f); // Bid winner None (-1)
+    assert(obs[451] == 1.0f); // Is my turn
+    assert(obs[456] == 0.0f); // Did anyone bid yet: false
+    assert(obs[457] == 1.0f); // Us active fraction: 2/2 = 1.0
+    assert(obs[458] == 1.0f); // Them active fraction: 2/2 = 1.0
+
+    // Full auction: player 1 bids 21, all others pass
+    game.step_training(13);
+    game.step_training(12);
+    game.step_training(12);
+    game.step_training(12);
+
+    // Phase 1: Trump Selection
+    assert(game.training_phase() == 1);
+    assert(game.training_bid_winner() == 1);
+    assert(game.training_current_player() == 1);
+    const std::vector<int> trumpActions = game.legal_training_actions();
+    assert(trumpActions.size() == 4);
+    assert(trumpActions[0] == 43 && trumpActions[3] == 46);
+
+    // Choose trump: 46 (Spades = 3)
+    TrainingStep step = game.step_training(46);
+    assert(!step.terminated);
+    assert(game.training_phase() == 2);
+    assert(game.training_trump() == 3);
+    assert(game.training_us_meld() >= 0);
+    assert(game.training_them_meld() >= 0);
+    assert(game.training_current_player() == 1); // Bid winner leads first trick
+
+    // Phase 2: Trick Taking until game ends
+    obs = game.training_observation(game.training_current_player());
+    assert(obs[438] == 1.0f); // Phase 2 one-hot
+    assert(obs[435] == 1.0f); // Trump Spades one-hot (432 + 3 = 435)
+
+    int trickCardCount = 0;
+    while (!step.terminated) {
         const std::vector<int> legalActions = game.legal_training_actions();
         assert(!legalActions.empty());
-        result = game.step_training(legalActions.front());
-        ++decisions;
-        assert(decisions <= 48);
+        step = game.step_training(legalActions.front());
+        ++trickCardCount;
+        assert(trickCardCount <= 48);
     }
 
+    // Phase 3: Finished
+    assert(step.terminated);
+    assert(game.training_phase() == 3);
     assert(game.training_hand().empty());
-    assert(game.training_us_points() + game.training_them_points() > 0);
+    assert(game.training_played_cards().size() == 48);
+    assert(game.training_us_trick_points() + game.training_them_trick_points() == 25);
+    assert(game.legal_training_actions().empty());
+}
+
+void test_training_game() {
+    std::cout << "Running test_training_game..." << std::endl;
+    test_bidding_opening_bid_21();
+    test_bidding_three_non_dealers_pass();
+    test_training_game_full_flow();
 }
 
 int main() {

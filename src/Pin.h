@@ -56,18 +56,57 @@ public:
     void allSuitAi();
 
     // Non-interactive API used by the Python reinforcement-learning bindings.
-    // Actions 12-16 are bidding actions: pass, or bid 20 with trump 0-3.
+    // Action space (Discrete 47):
+    // Actions 0..11: Play card at hand slot 0..11 (Trick play phase)
+    // Action 12: Pass (Bidding phase)
+    // Actions 13..42: Bid 21..50 (Bidding phase, bid = 21 + (action - 13))
+    // Actions 43..46: Choose Trump (43 Clubs, 44 Diamonds, 45 Hearts, 46 Spades)
+    static constexpr int ACTION_SPACE_SIZE = 47;
+
+    // Observation space (Box 459, float32):
+    // [0..287]:   Hand slots (12 slots x 24 card types one-hot)
+    // [288..383]: Current trick slots (4 slots x 24 card types one-hot)
+    // [384..431]: Played cards history (24 card types x 2: count >= 1, count == 2)
+    // [432..435]: Trump suit (4 one-hot: Clubs, Diamonds, Hearts, Spades; 0 if none)
+    // [436..438]: Phase (3 one-hot: 0 Bidding, 1 Trump Selection, 2 Trick Taking)
+    // [439]:      Current bid / 50.0f
+    // [440..442]: Bid winner (3 one-hot: Us (0/2), Them (1/3), None (-1))
+    // [443..446]: Relative seat to dealer (4 one-hot: (player - dealer + 4) % 4)
+    // [447..450]: Position in current trick (4 one-hot: currTrick.size())
+    // [451]:      Is my turn (1.0f if currentPlayer == player else 0.0f)
+    // [452]:      Us meld / 50.0f
+    // [453]:      Them meld / 50.0f
+    // [454]:      Us trick points / 25.0f
+    // [455]:      Them trick points / 25.0f
+    // [456]:      Did anyone bid yet (1.0f if bidWinner != -1 else 0.0f)
+    // [457..458]: Active bidders (2 floats: fraction Us active, fraction Them active)
+    static constexpr int OBSERVATION_SIZE = 459;
+
     void reset_training(std::uint32_t seed = 0);
     std::vector<int> legal_training_actions() const;
     TrainingStep step_training(int action);
     const std::vector<card>& training_hand() const;
     const std::vector<card>& training_player_hand(int player) const;
     const std::vector<card>& training_trick() const;
+    const std::vector<card>& training_played_cards() const;
     int training_trump() const;
     int training_phase() const;
     int training_current_player() const;
+    int training_dealer() const;
+    int training_bid() const;
+    int training_bid_winner() const;
     int training_us_points() const;
     int training_them_points() const;
+    int training_us_meld() const;
+    int training_them_meld() const;
+    int training_us_trick_points() const;
+    int training_them_trick_points() const;
+    int training_us_score() const;
+    int training_them_score() const;
+    std::vector<bool> training_active_bidders() const;
+
+    void write_training_observation(int player, float* buffer) const;
+    std::vector<float> training_observation(int player) const;
     
 
 
@@ -114,9 +153,21 @@ private:
     std::vector<std::string> ranks = {"9", "J", "Q", "K", "10", "A"};
     std::vector<std::string> suits = {"Clubs", "Diamonds", "Hearts", "Spades"};
 
-    int trainingPhase = 0; // 0: bidding, 1: trick taking, 2: finished
-    int trainingCurrentPlayer = 2;
+    int trainingDealer = 3;
+    int trainingBid = 20;
+    int trainingBidWinner = -1;
+    int trainingTrump = -1;
+    std::vector<bool> trainingActiveBidders = {true, true, true, true};
+    int trainingCurrentPlayer = 0;
+    int trainingPhase = 0; // 0: bidding, 1: trump selection, 2: trick taking, 3: finished
     std::vector<int> trainingTrickPlayers;
+    std::vector<card> trainingPlayedCards;
+    int trainingUsMeld = 0;
+    int trainingThemMeld = 0;
+    int trainingUsTrickPoints = 0;
+    int trainingThemTrickPoints = 0;
+    int trainingUsScore = 0;
+    int trainingThemScore = 0;
     std::mt19937 trainingRandom;
 
     void play_training_card(int player, int handIndex, float& reward);

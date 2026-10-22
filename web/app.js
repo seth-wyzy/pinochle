@@ -21,15 +21,186 @@ const loadPinochlePolicy = () => {
     return policySessionPromise;
 };
 
+const RANKS = [9, 11, 12, 13, 14, 15];
+
+const cardTypeIndex = (card) => {
+    const rankIndex = RANKS.indexOf(card.rank);
+    if (rankIndex === -1) {
+        return -1;
+    }
+    return card.suit * 6 + rankIndex;
+};
+
+const sortHandForModel = (hand) => {
+    return hand.slice().sort((a, b) => a.suit - b.suit || a.rank - b.rank);
+};
+
+const buildObservation = (player, room = {}) => {
+    let seat = 0;
+    let hand = [];
+    if (typeof player === 'number') {
+        seat = player;
+        hand = room.players?.[seat]?.hand || room.hand || [];
+    } else if (Array.isArray(player)) {
+        hand = player;
+        seat = room.mySeat ?? 0;
+    } else if (player && typeof player === 'object') {
+        seat = player.seat ?? room.mySeat ?? 0;
+        hand = player.hand || (room.hand || room.players?.[seat]?.hand || []);
+    } else {
+        seat = room.mySeat ?? 0;
+        hand = room.hand || room.players?.[seat]?.hand || [];
+    }
+
+    const observation = new Float32Array(459);
+    const sortedHand = sortHandForModel(hand);
+
+    // 1. Hand slots: 12 slots x 24 card types one-hot (indices 0..287)
+    sortedHand.slice(0, 12).forEach((card, slot) => {
+        const idx = cardTypeIndex(card);
+        if (idx >= 0 && idx < 24) {
+            observation[slot * 24 + idx] = 1.0;
+        }
+    });
+
+    // 2. Current trick slots: 4 slots x 24 card types one-hot (indices 288..383)
+    const trickPlays = room.trick || [];
+    trickPlays.slice(0, 4).forEach((play, slot) => {
+        const card = play.card || play;
+        const idx = cardTypeIndex(card);
+        if (idx >= 0 && idx < 24) {
+            observation[288 + slot * 24 + idx] = 1.0;
+        }
+    });
+
+    // 3. Played cards history (card counting): 24 card types x 2 (indices 384..431)
+    const playedCards = room.playedCards || [];
+    const cardCounts = new Array(24).fill(0);
+    playedCards.forEach((play) => {
+        const card = play.card || play;
+        const idx = cardTypeIndex(card);
+        if (idx >= 0 && idx < 24) {
+            cardCounts[idx]++;
+        }
+    });
+    for (let c = 0; c < 24; c++) {
+        if (cardCounts[c] >= 1) {
+            observation[384 + c * 2] = 1.0;
+        }
+        if (cardCounts[c] >= 2) {
+            observation[384 + c * 2 + 1] = 1.0;
+        }
+    }
+
+    // 4. Trump suit: 4 one-hot (indices 432..435) (0: Clubs, 1: Diamonds, 2: Hearts, 3: Spades; all 0 if none)
+    if (room.trump !== null && room.trump !== undefined && room.trump >= 0 && room.trump < 4) {
+        observation[432 + room.trump] = 1.0;
+    }
+
+    // 5. Game phase: 3 one-hot (indices 436..438)
+    let phaseIndex = -1;
+    if (room.phase === 0 || room.phase === 'bidding') {
+        phaseIndex = 0;
+    } else if (room.phase === 1 || room.phase === 'trump') {
+        phaseIndex = 1;
+    } else if (room.phase === 2 || room.phase === 'playing' || room.phase === 'trick-result') {
+        phaseIndex = 2;
+    }
+    if (phaseIndex >= 0) {
+        observation[436 + phaseIndex] = 1.0;
+    }
+
+    // 6. Current bid: room.bid / 50.0 (index 439)
+    observation[439] = (room.bid || 0) / 50.0;
+
+    // 7. Bid winner: 3 one-hot (indices 440..442):
+    // 440: Us (seat 0 or 2)
+    // 441: Them (seat 1 or 3)
+    // 442: None (bidWinner === null || bidWinner === undefined)
+    if (room.bidWinner === 0 || room.bidWinner === 2) {
+        observation[440] = 1.0;
+    } else if (room.bidWinner === 1 || room.bidWinner === 3) {
+        observation[441] = 1.0;
+    } else {
+        observation[442] = 1.0;
+    }
+
+    // 8. Relative seat to dealer: 4 one-hot (indices 443..446):
+    const dealer = room.dealer ?? 0;
+    const relSeat = ((seat - dealer) % 4 + 4) % 4;
+    observation[443 + relSeat] = 1.0;
+
+    // 9. Position in current trick: 4 one-hot (indices 447..450):
+    const trickLength = room.trick ? room.trick.length : 0;
+    if (trickLength >= 0 && trickLength < 4) {
+        observation[447 + trickLength] = 1.0;
+    }
+
+    // 10. Is my turn: (index 451): 1.0 if room.turn === seat else 0.0
+    observation[451] = (room.turn === seat) ? 1.0 : 0.0;
+
+    // 11. Us meld: (index 452): usMeld / 50.0
+    // 12. Them meld: (index 453): themMeld / 50.0
+    let usMeld = 0;
+    let themMeld = 0;
+    if (typeof room.usMeld === 'number') {
+        usMeld = room.usMeld;
+    } else if (room.meld?.us !== undefined) {
+        usMeld = room.meld.us;
+    } else if (Array.isArray(room.players)) {
+        usMeld = room.players
+            .filter(p => p.seat % 2 === 0)
+            .reduce((sum, p) => sum + (p.meld || 0), 0);
+    }
+    if (typeof room.themMeld === 'number') {
+        themMeld = room.themMeld;
+    } else if (room.meld?.them !== undefined) {
+        themMeld = room.meld.them;
+    } else if (Array.isArray(room.players)) {
+        themMeld = room.players
+            .filter(p => p.seat % 2 !== 0)
+            .reduce((sum, p) => sum + (p.meld || 0), 0);
+    }
+    observation[452] = usMeld / 50.0;
+    observation[453] = themMeld / 50.0;
+
+    // 13. Us trick points: (index 454): (room.trickPoints?.us || 0) / 25.0
+    // 14. Them trick points: (index 455): (room.trickPoints?.them || 0) / 25.0
+    const usTrickPts = typeof room.usTrickPoints === 'number'
+        ? room.usTrickPoints
+        : (room.trickPoints?.us || 0);
+    const themTrickPts = typeof room.themTrickPoints === 'number'
+        ? room.themTrickPoints
+        : (room.trickPoints?.them || 0);
+    observation[454] = usTrickPts / 25.0;
+    observation[455] = themTrickPts / 25.0;
+
+    // 15. Did anyone bid yet: (index 456): room.bidWinner !== null && room.bidWinner !== undefined ? 1.0 : 0.0
+    const hasBidWinner = room.bidWinner !== null && room.bidWinner !== undefined && room.bidWinner !== -1;
+    observation[456] = hasBidWinner ? 1.0 : 0.0;
+
+    // 16. Active bidders: (indices 457..458):
+    const active = room.active || [true, true, true, true];
+    const usActive = (active[0] ? 1 : 0) + (active[2] ? 1 : 0);
+    const themActive = (active[1] ? 1 : 0) + (active[3] ? 1 : 0);
+    observation[457] = usActive / 2.0;
+    observation[458] = themActive / 2.0;
+
+    observation.observation = observation;
+    observation.sortedHand = sortedHand;
+    return observation;
+};
+
 const predictPinochleAction = async (observation, legalActions) => {
     if (!legalActions.length) {
         throw new Error('No legal actions are available.');
     }
     const session = await loadPinochlePolicy();
+    const rawObs = observation && observation.observation ? observation.observation : observation;
     const input = new globalThis.ort.Tensor(
         'float32',
-        Float32Array.from(observation),
-        [1, 391],
+        Float32Array.from(rawObs),
+        [1, 459],
     );
     const result = await session.run({ observation: input });
     const logits = result.action_logits.data;
@@ -41,6 +212,7 @@ const predictPinochleAction = async (observation, legalActions) => {
 globalThis.pinochlePolicy = {
     load: loadPinochlePolicy,
     predict: predictPinochleAction,
+    buildObservation,
 };
 
 const names = ['north', 'east', 'south', 'west'];
@@ -418,43 +590,53 @@ async function act(action) {
     }
 }
 
-$('#create').onclick = async () => {
-    try {
-        const d = await request('/api/rooms', {
-            method: 'POST',
-            body: JSON.stringify({
-                name: $('#name').value,
-                players: 4,
-            }),
-        });
-        enter(d.room, d.seatToken);
-    } catch (e) {
-        $('#room-hint').textContent = e.message;
-    }
-};
-
-$('#join').onclick = async () => {
-    try {
-        const code = $('#room-input').value.trim().toUpperCase();
-        const saved = localStorage.getItem(`pinochle:${code}`);
-        if (saved) {
-            const d = await request(
-                `/api/rooms/${code}?seatToken=${encodeURIComponent(saved)}`
-            );
-            return enter(d.room, saved);
+if (typeof document !== 'undefined') {
+    $('#create').onclick = async () => {
+        try {
+            const d = await request('/api/rooms', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: $('#name').value,
+                    players: 4,
+                }),
+            });
+            enter(d.room, d.seatToken);
+        } catch (e) {
+            $('#room-hint').textContent = e.message;
         }
-        const d = await request(`/api/rooms/${code}/join`, {
-            method: 'POST',
-            body: JSON.stringify({
-                name: $('#name').value,
-            }),
-        });
-        enter(d.room, d.seatToken);
-    } catch (e) {
-        $('#room-hint').textContent = e.message;
-    }
-};
+    };
 
-$('#leave').onclick = () => {
-    returnToLobby('');
-};
+    $('#join').onclick = async () => {
+        try {
+            const code = $('#room-input').value.trim().toUpperCase();
+            const saved = localStorage.getItem(`pinochle:${code}`);
+            if (saved) {
+                const d = await request(
+                    `/api/rooms/${code}?seatToken=${encodeURIComponent(saved)}`
+                );
+                return enter(d.room, saved);
+            }
+            const d = await request(`/api/rooms/${code}/join`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: $('#name').value,
+                }),
+            });
+            enter(d.room, d.seatToken);
+        } catch (e) {
+            $('#room-hint').textContent = e.message;
+        }
+    };
+
+    $('#leave').onclick = () => {
+        returnToLobby('');
+    };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        buildObservation,
+        predictPinochleAction,
+        loadPinochlePolicy,
+    };
+}

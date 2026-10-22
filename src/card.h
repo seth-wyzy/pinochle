@@ -26,5 +26,6 @@ public:
 // Helper functions for Pinochle trick rules
 card getWinningCard(const std::vector<card>& trickCards, int trump);
 std::vector<card> getLegalCards(const std::vector<card>& hand, const std::vector<card>& trickCards, int trump);
+int card_index(const card& c);
 
 #endif

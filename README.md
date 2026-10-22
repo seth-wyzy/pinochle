@@ -98,7 +98,7 @@ The main MaskablePPO settings are exposed by `ml/train.py`:
 | `--n-steps` | `2048` | Rollout steps collected per environment update |
 | `--batch-size` | `64` | Minibatch size used for PPO updates |
 | `--gamma` | `0.99` | Future-reward discount factor |
-| `--ent-coef` | `0.0` | Extra action entropy incentive |
+| `--ent-coef` | `0.01` | Extra action entropy incentive |
 | `--timesteps` | `250000` | Total environment steps |
 | `--n-envs` | `4` | Parallel environments |
 
@@ -129,11 +129,11 @@ python ml/export_onnx.py \
 ```
 
 The exporter writes the policy action head as `action_logits`. The input is a
-`float32` observation with 391 features (the same observation produced by
-`PinochleEnv`) and the output has 17 logits. Before selecting an action, the
+`float32` observation with 459 features (the same observation produced by
+`PinochleEnv`) and the output has 47 logits. Before selecting an action, the
 web client must mask illegal actions using the room state and choose the
-highest remaining logit. Actions 0–11 are card slots; 12 is pass; and 13–16
-are bidding/trump actions.
+highest remaining logit. Actions 0–11 are card slots; 12 is pass; 13–42
+are bids 21–50; and 43–46 are trump suit selection (Clubs, Diamonds, Hearts, Spades).
 
 For browser inference, install ONNX Runtime Web in the web application and
 load the static artifact. Because this project serves plain JavaScript rather
@@ -158,7 +158,7 @@ Then load the model from the same origin in browser code:
 const policySession = await ort.InferenceSession.create(
     '/models/pinochle_policy.onnx',
 );
-const input = new ort.Tensor('float32', observation, [1, 391]);
+const input = new ort.Tensor('float32', observation, [1, 459]);
 const output = await policySession.run({ observation: input });
 const logits = output.action_logits.data;
 const action = legalActions.reduce((best, candidate) => {
@@ -166,7 +166,8 @@ const action = legalActions.reduce((best, candidate) => {
 }, legalActions[0]);
 ```
 
-`observation` must be the same 391-feature vector used during training, and
+`observation` must be the same 459-feature vector used during training (constructed
+via `globalThis.pinochlePolicy.buildObservation(player, room)`), and
 `legalActions` must be computed from the current room state before selecting a
 logit. The model can provide a browser-side hint or control a browser-owned
 seat. For normal web games, the Node server is authoritative and uses the same

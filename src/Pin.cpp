@@ -1,12 +1,15 @@
 #include "Pin.h"
+#include "aiPlayer.h"
+#include "card.h"
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <exception>
 #include <iostream>
-#include <ostream>
-#include <pstl/glue_algorithm_defs.h>
-#include <vector>
-#include <random>
-#include <algorithm>
 #include <map>
+#include <ostream>
+#include <random>
+#include <vector>
 
 
 
@@ -604,63 +607,136 @@ void Pin::reset_training(std::uint32_t seed) {
     deal_hands();
     sortHands();
 
-    currTrick.clear();
-    trainingTrickPlayers.clear();
-    usCards.clear();
-    themCards.clear();
-    usPoints = 0;
-    themPoints = 0;
-    trumpSuit = -1;
+    trainingDealer = (trainingDealer + 1) % 4;
+    dealer = trainingDealer;
+    trainingBid = 20;
+    trainingBidWinner = -1;
     bet = 20;
     betWinner = -1;
-    tWinner = 2;
-    trainingCurrentPlayer = 2;
+    trainingActiveBidders.assign(4, true);
+    trainingCurrentPlayer = (trainingDealer + 1) % 4;
     trainingPhase = 0;
+
+    currTrick.clear();
+    trainingTrickPlayers.clear();
+    trainingPlayedCards.clear();
+    usCards.clear();
+    themCards.clear();
+
+    trainingTrump = -1;
+    trumpSuit = -1;
+    tWinner = trainingCurrentPlayer;
+
+    trainingUsMeld = 0;
+    trainingThemMeld = 0;
+    trainingUsTrickPoints = 0;
+    trainingThemTrickPoints = 0;
+    trainingUsScore = 0;
+    trainingThemScore = 0;
+    usPoints = 0;
+    themPoints = 0;
+    this->usTotal = 0;
+    this->themTotal = 0;
 }
 
 std::vector<int> Pin::legal_training_actions() const {
-    if (trainingPhase == 0) {
-        return {12, 13, 14, 15, 16};
-    }
-    if (trainingPhase != 1) {
-        return {};
-    }
-
     std::vector<int> actions;
-    const std::vector<card>& currentHand = *allHands.at(trainingCurrentPlayer);
-    const std::vector<card> legal = getLegalCards(currentHand, currTrick, trumpSuit);
-    for (int i = 0; i < static_cast<int>(currentHand.size()); ++i) {
-        if (std::find(legal.begin(), legal.end(), currentHand[i]) != legal.end()) {
-            actions.push_back(i);
+    if (trainingPhase == 0) {
+        // Bidding phase
+        // Action 12: Pass
+        actions.push_back(12);
+        // Actions 13..42: Bid 21..50 (bid amount = 21 + (action - 13))
+        for (int a = 13; a <= 42; ++a) {
+            int bidAmount = 21 + (a - 13);
+            if (bidAmount > trainingBid) {
+                actions.push_back(a);
+            }
         }
+        return actions;
     }
-    return actions;
+    if (trainingPhase == 1) {
+        // Trump selection phase: 43 Clubs, 44 Diamonds, 45 Hearts, 46 Spades
+        return {43, 44, 45, 46};
+    }
+    if (trainingPhase == 2) {
+        // Trick taking phase
+        const std::vector<card>& currentHand = *allHands.at(trainingCurrentPlayer);
+        const std::vector<card> legal = getLegalCards(currentHand, currTrick, trainingTrump);
+        for (int i = 0; i < static_cast<int>(currentHand.size()); ++i) {
+            if (std::find(legal.begin(), legal.end(), currentHand[i]) != legal.end()) {
+                actions.push_back(i);
+            }
+        }
+        return actions;
+    }
+    // Phase 3 (Finished) or invalid
+    return {};
 }
 
 TrainingStep Pin::step_training(int action) {
-    TrainingStep result{0.0F, trainingPhase == 2};
+    TrainingStep result{0.0f, trainingPhase == 3};
     const std::vector<int> legalActions = legal_training_actions();
     if (std::find(legalActions.begin(), legalActions.end(), action) == legalActions.end()) {
-        result.reward = -1.0F;
+        result.reward = -1.0f;
+        result.terminated = (trainingPhase == 3);
         return result;
     }
 
     if (trainingPhase == 0) {
         if (action == 12) {
-            betWinner = (trainingCurrentPlayer + 1) % 4;
-            trumpSuit = choose_training_trump(*allHands.at(betWinner));
-        } else {
-            betWinner = trainingCurrentPlayer;
-            trumpSuit = action - 13;
+            trainingActiveBidders[trainingCurrentPlayer] = false;
+        } else if (action >= 13 && action <= 42) {
+            trainingBid = 21 + (action - 13);
+            trainingBidWinner = trainingCurrentPlayer;
+            bet = trainingBid;
+            betWinner = trainingBidWinner;
         }
-        tWinner = betWinner;
-        trainingCurrentPlayer = tWinner;
-        trainingPhase = 1;
-    } else {
+
+        int activeCount = 0;
+        for (int i = 0; i < 4; ++i) {
+            if (trainingActiveBidders[i]) {
+                ++activeCount;
+            }
+        }
+
+        if (activeCount <= 1) {
+            if (trainingBidWinner == -1) {
+                // The 3 players besides dealer passed without bidding: dealer stuck with 20
+                trainingBidWinner = trainingDealer;
+                trainingBid = 20;
+            }
+            bet = trainingBid;
+            betWinner = trainingBidWinner;
+            trainingPhase = 1;
+            trainingCurrentPlayer = trainingBidWinner;
+        } else {
+            // Advance trainingCurrentPlayer = (trainingCurrentPlayer + 1) % 4 until active bidder
+            do {
+                trainingCurrentPlayer = (trainingCurrentPlayer + 1) % 4;
+            } while (!trainingActiveBidders[trainingCurrentPlayer]);
+        }
+    } else if (trainingPhase == 1) {
+        // Trump selection phase
+        trainingTrump = action - 43;
+        trumpSuit = trainingTrump;
+
+        // Calculate meld for all 4 players with trainingTrump
+        int meld0 = count_meld(*allHands.at(0), trainingTrump, false);
+        int meld1 = count_meld(*allHands.at(1), trainingTrump, false);
+        int meld2 = count_meld(*allHands.at(2), trainingTrump, false);
+        int meld3 = count_meld(*allHands.at(3), trainingTrump, false);
+        trainingUsMeld = meld0 + meld2;
+        trainingThemMeld = meld1 + meld3;
+
+        trainingPhase = 2;
+        trainingCurrentPlayer = trainingBidWinner;
+        tWinner = trainingBidWinner;
+    } else if (trainingPhase == 2) {
+        // Trick taking phase
         play_training_card(trainingCurrentPlayer, action, result.reward);
     }
 
-    result.terminated = trainingPhase == 2;
+    result.terminated = (trainingPhase == 3);
     return result;
 }
 
@@ -676,8 +752,12 @@ const std::vector<card>& Pin::training_trick() const {
     return currTrick;
 }
 
+const std::vector<card>& Pin::training_played_cards() const {
+    return trainingPlayedCards;
+}
+
 int Pin::training_trump() const {
-    return trumpSuit;
+    return trainingTrump;
 }
 
 int Pin::training_phase() const {
@@ -688,16 +768,56 @@ int Pin::training_current_player() const {
     return trainingCurrentPlayer;
 }
 
+int Pin::training_dealer() const {
+    return trainingDealer;
+}
+
+int Pin::training_bid() const {
+    return trainingBid;
+}
+
+int Pin::training_bid_winner() const {
+    return trainingBidWinner;
+}
+
 int Pin::training_us_points() const {
-    return usPoints;
+    return trainingUsTrickPoints;
 }
 
 int Pin::training_them_points() const {
-    return themPoints;
+    return trainingThemTrickPoints;
+}
+
+int Pin::training_us_meld() const {
+    return trainingUsMeld;
+}
+
+int Pin::training_them_meld() const {
+    return trainingThemMeld;
+}
+
+int Pin::training_us_trick_points() const {
+    return trainingUsTrickPoints;
+}
+
+int Pin::training_them_trick_points() const {
+    return trainingThemTrickPoints;
+}
+
+int Pin::training_us_score() const {
+    return trainingUsScore;
+}
+
+int Pin::training_them_score() const {
+    return trainingThemScore;
+}
+
+std::vector<bool> Pin::training_active_bidders() const {
+    return trainingActiveBidders;
 }
 
 void Pin::play_training_card(int player, int handIndex, float& reward) {
-    std::vector<card>& playerHand = *allHands[player];
+    std::vector<card>& playerHand = *allHands.at(player);
     const card played = playerHand[handIndex];
     playerHand.erase(playerHand.begin() + handIndex);
     currTrick.push_back(played);
@@ -710,7 +830,7 @@ void Pin::play_training_card(int player, int handIndex, float& reward) {
 }
 
 void Pin::resolve_training_trick(float& reward) {
-    const card winningCard = getWinningCard(currTrick, trumpSuit);
+    const card winningCard = getWinningCard(currTrick, trainingTrump);
     int winner = trainingTrickPlayers.front();
     for (std::size_t i = 0; i < currTrick.size(); ++i) {
         if (currTrick[i] == winningCard) {
@@ -725,26 +845,167 @@ void Pin::resolve_training_trick(float& reward) {
             ++trickPoints;
         }
     }
-    if (hand.empty()) {
+
+    bool isLastTrick = allHands.at(0)->empty();
+    if (isLastTrick) {
         ++trickPoints;
     }
 
-    const bool ourTeam = winner == 0 || winner == 2;
+    const bool ourTeam = (winner == 0 || winner == 2);
     if (ourTeam) {
-        usPoints += trickPoints;
-        reward += static_cast<float>(trickPoints);
+        trainingUsTrickPoints += trickPoints;
+        reward += static_cast<float>(trickPoints) / 25.0f;
     } else {
-        themPoints += trickPoints;
-        reward -= static_cast<float>(trickPoints);
+        trainingThemTrickPoints += trickPoints;
+        reward -= static_cast<float>(trickPoints) / 25.0f;
+    }
+
+    for (const card& played : currTrick) {
+        trainingPlayedCards.push_back(played);
     }
 
     currTrick.clear();
     trainingTrickPlayers.clear();
     tWinner = winner;
     trainingCurrentPlayer = winner;
-    if (hand.empty()) {
-        trainingPhase = 2;
+
+    if (isLastTrick) {
+        trainingPhase = 3;
+        int finalUsTotal = trainingUsMeld + trainingUsTrickPoints;
+        int finalThemTotal = trainingThemMeld + trainingThemTrickPoints;
+        int usScore = 0;
+        int themScore = 0;
+
+        if (trainingBidWinner == 0 || trainingBidWinner == 2) {
+            // Us bid
+            usScore = (finalUsTotal >= trainingBid) ? finalUsTotal : -trainingBid;
+            themScore = finalThemTotal;
+        } else {
+            // Them bid
+            themScore = (finalThemTotal >= trainingBid) ? finalThemTotal : -trainingBid;
+            usScore = finalUsTotal;
+        }
+        trainingUsScore = usScore;
+        trainingThemScore = themScore;
+
+        float totalTargetReward = static_cast<float>(usScore - themScore) / 25.0f;
+        float trickRewardsGiven = static_cast<float>(trainingUsTrickPoints - trainingThemTrickPoints) / 25.0f;
+        float settlementReward = totalTargetReward - trickRewardsGiven;
+        reward += settlementReward;
+
+        usPoints = trainingUsTrickPoints;
+        themPoints = trainingThemTrickPoints;
+        this->usTotal = trainingUsScore;
+        this->themTotal = trainingThemScore;
     }
+}
+
+void Pin::write_training_observation(int player, float* buffer) const {
+    std::fill_n(buffer, OBSERVATION_SIZE, 0.0f);
+
+    // 1. Hand slots: 12 slots x 24 one-hot = 288 (0..287)
+    const std::vector<card>& playerHand = *allHands.at(player);
+    for (std::size_t slot = 0; slot < playerHand.size() && slot < 12; ++slot) {
+        int idx = card_index(playerHand[slot]);
+        if (idx >= 0 && idx < 24) {
+            buffer[slot * 24 + idx] = 1.0f;
+        }
+    }
+
+    // 2. Current trick slots: 4 slots x 24 one-hot = 96 (288..383)
+    constexpr int trickOffset = 288;
+    for (std::size_t slot = 0; slot < currTrick.size() && slot < 4; ++slot) {
+        int idx = card_index(currTrick[slot]);
+        if (idx >= 0 && idx < 24) {
+            buffer[trickOffset + slot * 24 + idx] = 1.0f;
+        }
+    }
+
+    // 3. Played cards history: 24 card types x 2 = 48 (384..431)
+    // 24 card types x 2 (count >= 1, count == 2)
+    constexpr int playedOffset = 384;
+    int cardCounts[24] = {0};
+    for (const card& c : trainingPlayedCards) {
+        int idx = card_index(c);
+        if (idx >= 0 && idx < 24) {
+            cardCounts[idx]++;
+        }
+    }
+    for (int c = 0; c < 24; ++c) {
+        if (cardCounts[c] >= 1) {
+            buffer[playedOffset + c * 2] = 1.0f;
+        }
+        if (cardCounts[c] == 2) {
+            buffer[playedOffset + c * 2 + 1] = 1.0f;
+        }
+    }
+
+    // 4. Trump suit: 4 one-hot (432..435) (all 0 if not yet chosen)
+    constexpr int trumpOffset = 432;
+    if (trainingTrump >= 0 && trainingTrump < 4) {
+        buffer[trumpOffset + trainingTrump] = 1.0f;
+    }
+
+    // 5. Phase: 3 one-hot for phases 0, 1, 2 (436..438)
+    constexpr int phaseOffset = 436;
+    if (trainingPhase >= 0 && trainingPhase <= 2) {
+        buffer[phaseOffset + trainingPhase] = 1.0f;
+    }
+
+    // 6. Current bid: trainingBid / 50.0f (439)
+    buffer[439] = static_cast<float>(trainingBid) / 50.0f;
+
+    // 7. Bid winner: 3 one-hot: Us (0/2), Them (1/3), None (-1) (440..442)
+    constexpr int bidWinnerOffset = 440;
+    if (trainingBidWinner == 0 || trainingBidWinner == 2) {
+        buffer[bidWinnerOffset + 0] = 1.0f;
+    } else if (trainingBidWinner == 1 || trainingBidWinner == 3) {
+        buffer[bidWinnerOffset + 1] = 1.0f;
+    } else {
+        buffer[bidWinnerOffset + 2] = 1.0f;
+    }
+
+    // 8. Relative seat to dealer: 4 one-hot (player - trainingDealer + 4) % 4 (443..446)
+    constexpr int relSeatOffset = 443;
+    int relSeat = (player - trainingDealer + 4) % 4;
+    buffer[relSeatOffset + relSeat] = 1.0f;
+
+    // 9. Position in current trick: 4 one-hot currTrick.size() (447..450)
+    constexpr int trickPosOffset = 447;
+    int trickPos = static_cast<int>(currTrick.size());
+    if (trickPos >= 0 && trickPos < 4) {
+        buffer[trickPosOffset + trickPos] = 1.0f;
+    }
+
+    // 10. Is my turn: 1 float (451)
+    buffer[451] = (trainingCurrentPlayer == player) ? 1.0f : 0.0f;
+
+    // 11. Us meld: trainingUsMeld / 50.0f (452)
+    buffer[452] = static_cast<float>(trainingUsMeld) / 50.0f;
+
+    // 12. Them meld: trainingThemMeld / 50.0f (453)
+    buffer[453] = static_cast<float>(trainingThemMeld) / 50.0f;
+
+    // 13. Us trick points: trainingUsTrickPoints / 25.0f (454)
+    buffer[454] = static_cast<float>(trainingUsTrickPoints) / 25.0f;
+
+    // 14. Them trick points: trainingThemTrickPoints / 25.0f (455)
+    buffer[455] = static_cast<float>(trainingThemTrickPoints) / 25.0f;
+
+    // 15. Did anyone bid yet: trainingBidWinner != -1 ? 1.0f : 0.0f (456)
+    buffer[456] = (trainingBidWinner != -1) ? 1.0f : 0.0f;
+
+    // 16. Active bidders: 2 floats: fraction Us active, fraction Them active (457..458)
+    int usActive = (trainingActiveBidders[0] ? 1 : 0) + (trainingActiveBidders[2] ? 1 : 0);
+    int themActive = (trainingActiveBidders[1] ? 1 : 0) + (trainingActiveBidders[3] ? 1 : 0);
+    buffer[457] = static_cast<float>(usActive) / 2.0f;
+    buffer[458] = static_cast<float>(themActive) / 2.0f;
+}
+
+std::vector<float> Pin::training_observation(int player) const {
+    std::vector<float> obs(OBSERVATION_SIZE);
+    write_training_observation(player, obs.data());
+    return obs;
 }
 
 int Pin::choose_training_trump(const std::vector<card>& cards) {
